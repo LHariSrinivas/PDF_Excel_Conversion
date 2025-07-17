@@ -141,7 +141,7 @@ def pdf_extraction():
         app_id="SLDC Gujarat Script",
         title="📊 SLDC Gujarat Summary",
         msg=notification_message,
-        duration="long",  # Stays ~25 sec then moves to Action Center
+        duration="short",  # Stays ~25 sec then moves to Action Center
         icon=ICON_PATH if os.path.exists(ICON_PATH) else None
     )
 
@@ -149,8 +149,8 @@ def pdf_extraction():
     toast.show()
 
 def excel_conversion():
-    input_folder = "downloads"
-    output_folder = "excel_conversion"
+    input_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
+    output_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
     os.makedirs(output_folder, exist_ok=True)
 
     # Expected column headers (including empty column)
@@ -254,15 +254,14 @@ def excel_conversion():
         app_id="SLDC Gujarat Data",
         title="PDF to EXCEL Conversion",
         msg="All files converted successfully!",
-        duration="long"  # Stays ~25 sec then moves to Action Center
+        duration="short"  # Stays ~25 sec then moves to Action Center
     )
     toast.set_audio(audio.Default, loop=False)
     toast.show()
 
-
 def excel_merging():
-    input_folder = "excel_conversion"
-    output_file = "cleanmax_final_combined.xlsx"
+    input_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
+    output_file = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion/cleanmax_final_combined.xlsx"
 
     # Month ordering to preserve natural month-wise merging
     MONTH_INDEX = {
@@ -332,6 +331,14 @@ def excel_merging():
 
     print(f"\n✅ Merged file created in monthly order: {output_file}")
 
+    toast = Notification(
+        app_id="SLDC Gujarat Data",
+        title="Excel Merged",
+        msg="Excel has been Merged successfully",
+        duration="long"  # Stays ~25 sec then moves to Action Center
+    )
+    toast.set_audio(audio.Default, loop=False)
+    toast.show()
 
 if __name__ == "__main__":
     pdf_extraction()
