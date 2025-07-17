@@ -21,7 +21,7 @@ MONTH_INDEX = {
     "SEP": "9", "OCT": "10", "NOV": "11", "DEC": "12"
 }
 BASE_URL = "https://www.sldcguj.com/Energy_Block_New.php"
-DOWNLOAD_DIR = "D:/Web Scraping SLDC Gujarat/downloads"
+DOWNLOAD_DIR = "D:/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
 ICON_PATH = "C:/Users/Hari.Srinivas/Downloads/images.png"  # Change to your valid .ico path
 
 # Ensure download directory exists
@@ -78,35 +78,41 @@ try:
                 no_pdf.append(month_name)
                 continue
 
-            found_new_pdf = False
-
-            for index, link in enumerate(pdf_links, start=1):
-                pdf_href = link.get_attribute("href")
-
-                # Generate unique filename
-                if "-" in pdf_href:
-                    suffix = pdf_href.split("-")[-1].replace(".pdf", "")
+            # Attempt to sort by suffix (timestamp or ID), fallback to last link
+            pdf_info = []
+            for link in pdf_links:
+                href = link.get_attribute("href")
+                if "-" in href and href.endswith(".pdf"):
+                    suffix = href.split("-")[-1].replace(".pdf", "")
                 else:
-                    suffix = f"v{index}"
-                filename = f"{ENERGY_NAME}_{YEAR}_{month_name}_{suffix}.pdf"
-                filename = filename.replace(" ", "_").replace("(", "").replace(")", "")
-                file_path = os.path.join(DOWNLOAD_DIR, filename)
+                    suffix = ""  # No suffix
+                pdf_info.append((suffix, href))
 
-                if os.path.exists(file_path):
-                    print(f"✔️ Already exists: {filename}")
-                    continue
-
-                print(f"📥 Downloading: {pdf_href}")
-                response = requests.get(pdf_href)
-                with open(file_path, "wb") as f:
-                    f.write(response.content)
-                print(f"✅ Saved: {file_path}")
-                found_new_pdf = True
-
-            if found_new_pdf:
-                downloaded.append(month_name)
+            if any(suffix for suffix, _ in pdf_info):
+                # If at least one suffix is present, sort by suffix
+                pdf_info.sort(reverse=True, key=lambda x: x[0])
+                selected_suffix, selected_href = pdf_info[0]
             else:
+                # No suffixes — fallback to last link
+                selected_suffix, selected_href = "vLast", pdf_info[-1][1]
+
+            # Generate filename
+            filename = f"{ENERGY_NAME}_{YEAR}_{month_name}_{selected_suffix}.pdf"
+            filename = filename.replace(" ", "_").replace("(", "").replace(")", "")
+            file_path = os.path.join(DOWNLOAD_DIR, filename)
+
+            if os.path.exists(file_path):
+                print(f"✔️ Already exists: {filename}")
                 already_present.append(month_name)
+                continue
+
+            print(f"📥 Downloading latest: {selected_href}")
+            response = requests.get(selected_href)
+            with open(file_path, "wb") as f:
+                f.write(response.content)
+            print(f"✅ Saved: {file_path}")
+            downloaded.append(month_name)
+
 
         except TimeoutException:
             print(f"❌ Timeout: No PDFs found for {month_name}")
