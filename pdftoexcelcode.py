@@ -2,8 +2,6 @@ import os
 import pdfplumber
 import pandas as pd
 from winotify import Notification, audio
-import re
-from datetime import datetime
 
 # Set folder paths
 input_folder = "downloads"
@@ -75,32 +73,11 @@ for filename in os.listdir(input_folder):
             print(f"⚠️  Skipping '{filename}' → No CLEANMAX data found.")
             continue
 
+        
         df_wind = pd.DataFrame(wind_rows, columns=columns)
         df_solar = pd.DataFrame(solar_rows, columns=columns)
 
-        # Extract date from filename, e.g., "HETENERGYBHILDI-HYBRID_2025_JAN_xyz.pdf"
-        match = re.search(r"_(\d{4})_([A-Z]{3})_", base_name)
-        if match:
-            year = match.group(1)
-            month_abbr = match.group(2).upper()
-            month_map = {
-                "JAN": "01", "FEB": "02", "MAR": "03", "APR": "04",
-                "MAY": "05", "JUN": "06", "JUL": "07", "AUG": "08",
-                "SEP": "09", "OCT": "10", "NOV": "11", "DEC": "12"
-            }
-            if month_abbr in month_map:
-                month = month_map[month_abbr]
-                date_str = f"01-{month}-{year}"
-            else:
-                date_str = ""
-        else:
-            date_str = ""
-
-        # Insert the 'Date' column after "Sr No"
-        if date_str:
-            df_wind.insert(1, "Date", date_str)
-            df_solar.insert(1, "Date", date_str)
-   
+       
         with pd.ExcelWriter(excel_path) as writer:
             df_wind.to_excel(writer, sheet_name="Wind Energy", index=False)
             df_solar.to_excel(writer, sheet_name="Solar Energy", index=False)
