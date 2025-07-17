@@ -2,7 +2,7 @@ import os
 import pandas as pd
 
 input_folder = "excel_conversion"
-output_file = "cleanmax_final_combined.xlsx"
+output_file = "downloads/cleanmax_final_combined.xlsx"
 
 # Month ordering to preserve natural month-wise merging
 MONTH_INDEX = {
