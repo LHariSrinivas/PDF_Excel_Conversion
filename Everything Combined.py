@@ -12,6 +12,7 @@ import os
 import requests
 from datetime import datetime
 import pdfplumber
+import re
 
 def pdf_extraction():
     # --- Configuration ---
@@ -80,35 +81,41 @@ def pdf_extraction():
                     no_pdf.append(month_name)
                     continue
 
-                found_new_pdf = False
-
-                for index, link in enumerate(pdf_links, start=1):
-                    pdf_href = link.get_attribute("href")
-
-                    # Generate unique filename
-                    if "-" in pdf_href:
-                        suffix = pdf_href.split("-")[-1].replace(".pdf", "")
+                # Attempt to sort by suffix (timestamp or ID), fallback to last link
+                pdf_info = []
+                for link in pdf_links:
+                    href = link.get_attribute("href")
+                    if "-" in href and href.endswith(".pdf"):
+                        suffix = href.split("-")[-1].replace(".pdf", "")
                     else:
-                        suffix = f"v{index}"
-                    filename = f"{ENERGY_NAME}_{YEAR}_{month_name}_{suffix}.pdf"
-                    filename = filename.replace(" ", "_").replace("(", "").replace(")", "")
-                    file_path = os.path.join(DOWNLOAD_DIR, filename)
+                        suffix = ""  # No suffix
+                    pdf_info.append((suffix, href))
 
-                    if os.path.exists(file_path):
-                        print(f"✔️ Already exists: {filename}")
-                        continue
-
-                    print(f"📥 Downloading: {pdf_href}")
-                    response = requests.get(pdf_href)
-                    with open(file_path, "wb") as f:
-                        f.write(response.content)
-                    print(f"✅ Saved: {file_path}")
-                    found_new_pdf = True
-
-                if found_new_pdf:
-                    downloaded.append(month_name)
+                if any(suffix for suffix, _ in pdf_info):
+                    # If at least one suffix is present, sort by suffix
+                    pdf_info.sort(reverse=True, key=lambda x: x[0])
+                    selected_suffix, selected_href = pdf_info[0]
                 else:
+                    # No suffixes — fallback to last link
+                    selected_suffix, selected_href = "vLast", pdf_info[-1][1]
+
+                # Generate filename
+                filename = f"{ENERGY_NAME}_{YEAR}_{month_name}_{selected_suffix}.pdf"
+                filename = filename.replace(" ", "_").replace("(", "").replace(")", "")
+                file_path = os.path.join(DOWNLOAD_DIR, filename)
+
+                if os.path.exists(file_path):
+                    print(f"✔️ Already exists: {filename}")
                     already_present.append(month_name)
+                    continue
+
+                print(f"📥 Downloading latest: {selected_href}")
+                response = requests.get(selected_href)
+                with open(file_path, "wb") as f:
+                    f.write(response.content)
+                print(f"✅ Saved: {file_path}")
+                downloaded.append(month_name)
+
 
             except TimeoutException:
                 print(f"❌ Timeout: No PDFs found for {month_name}")
@@ -142,9 +149,8 @@ def pdf_extraction():
     toast.show()
 
 def excel_conversion():
-    # Set folder paths
-    input_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
-    output_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
+    input_folder = "downloads"
+    output_folder = "excel_conversion"
     os.makedirs(output_folder, exist_ok=True)
 
     # Expected column headers (including empty column)
@@ -212,11 +218,32 @@ def excel_conversion():
                 print(f"⚠️  Skipping '{filename}' → No CLEANMAX data found.")
                 continue
 
-            
             df_wind = pd.DataFrame(wind_rows, columns=columns)
             df_solar = pd.DataFrame(solar_rows, columns=columns)
 
-        
+            # Extract date from filename, e.g., "HETENERGYBHILDI-HYBRID_2025_JAN_xyz.pdf"
+            match = re.search(r"_(\d{4})_([A-Z]{3})_", base_name)
+            if match:
+                year = match.group(1)
+                month_abbr = match.group(2).upper()
+                month_map = {
+                    "JAN": "01", "FEB": "02", "MAR": "03", "APR": "04",
+                    "MAY": "05", "JUN": "06", "JUL": "07", "AUG": "08",
+                    "SEP": "09", "OCT": "10", "NOV": "11", "DEC": "12"
+                }
+                if month_abbr in month_map:
+                    month = month_map[month_abbr]
+                    date_str = f"01-{month}-{year}"
+                else:
+                    date_str = ""
+            else:
+                date_str = ""
+
+            # Insert the 'Date' column after "Sr No"
+            if date_str:
+                df_wind.insert(1, "Date", date_str)
+                df_solar.insert(1, "Date", date_str)
+
             with pd.ExcelWriter(excel_path) as writer:
                 df_wind.to_excel(writer, sheet_name="Wind Energy", index=False)
                 df_solar.to_excel(writer, sheet_name="Solar Energy", index=False)
@@ -232,6 +259,81 @@ def excel_conversion():
     toast.set_audio(audio.Default, loop=False)
     toast.show()
 
+
+def excel_merging():
+    input_folder = "excel_conversion"
+    output_file = "cleanmax_final_combined.xlsx"
+
+    # Month ordering to preserve natural month-wise merging
+    MONTH_INDEX = {
+        "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+        "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
+    }
+
+    # Expected columns
+    columns = [
+        "Sr No", "Date", "", "Name of Wind Farm Owner", "DISCOM\nAllocation",
+        "UNDER\nREC\nMechanism", "Installed\nCapacity (MW)",
+        "Share in\nActive Energy\n(Mwh)", "Share in Reactive\nEnergy (Mvarh)"
+    ]
+
+    def get_month_index(filename):
+        for month_abbr, idx in MONTH_INDEX.items():
+            if month_abbr in filename.upper():
+                return idx
+        return 999  # If no match, push to end
+
+    # Gather all Excel files and sort by month index
+    files = [
+        f for f in os.listdir(input_folder) if f.lower().endswith(".xlsx")
+    ]
+    files = sorted(files, key=get_month_index)
+
+    # Merged data containers
+    all_wind_data = []
+    all_solar_data = []
+
+    # Process each file
+    for filename in files:
+        filepath = os.path.join(input_folder, filename)
+        print(f"📂 Adding: {filename}")
+
+        try:
+            wind_df = pd.read_excel(filepath, sheet_name="Wind Energy", dtype=str, engine="openpyxl")
+            solar_df = pd.read_excel(filepath, sheet_name="Solar Energy", dtype=str, engine="openpyxl")
+
+            if "Date" not in wind_df.columns or "Date" not in solar_df.columns:
+                print(f"⚠️ Skipped {filename} — Missing 'Date' column")
+                continue
+
+            # Preserve original order and structure
+            wind_df = wind_df[[col for col in columns if col in wind_df.columns]]
+            solar_df = solar_df[[col for col in columns if col in solar_df.columns]]
+
+            all_wind_data.append(wind_df)
+            all_solar_data.append(solar_df)
+
+        except Exception as e:
+            print(f"❌ Error with '{filename}' → {type(e).__name__}: {e}")
+
+    # Export merged file
+    with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+        if all_wind_data:
+            wind_merged = pd.concat(all_wind_data, ignore_index=True)
+            wind_merged["Sr No"] = range(1, len(wind_merged) + 1)
+            wind_merged = wind_merged.astype(str)
+            wind_merged.to_excel(writer, sheet_name="Wind Energy", index=False)
+
+        if all_solar_data:
+            solar_merged = pd.concat(all_solar_data, ignore_index=True)
+            solar_merged["Sr No"] = range(1, len(solar_merged) + 1)
+            solar_merged = solar_merged.astype(str)
+            solar_merged.to_excel(writer, sheet_name="Solar Energy", index=False)
+
+    print(f"\n✅ Merged file created in monthly order: {output_file}")
+
+
 if __name__ == "__main__":
     pdf_extraction()
     excel_conversion()
+    excel_merging()
