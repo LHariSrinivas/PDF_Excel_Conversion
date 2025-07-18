@@ -13,7 +13,12 @@ import requests
 from datetime import datetime
 
 # --- Configuration ---
-ENERGY_NAME = "HETENERGY(BHILDI-HYBRID)"
+ENERGY_NAMES = ["HETENERGY(BHILDI-HYBRID)",
+               "66KVYASHASWA(HYBRID)",
+               "SANATHAL(HEM_URJA_HYBRID)",
+               "MOTA_DEVLIYA(HETENERGY_HYBRID)",
+               "66KVCLEANMAXPIPARADI(HYBRID)"
+               ]
 YEAR = "2025"
 MONTH_INDEX = {
     "JAN": "1", "FEB": "2", "MAR": "3", "APR": "4",
@@ -22,101 +27,106 @@ MONTH_INDEX = {
 }
 BASE_URL = "https://www.sldcguj.com/Energy_Block_New.php"
 DOWNLOAD_DIR = "D:/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
-ICON_PATH = "C:/Users/Hari.Srinivas/Downloads/images.png"  # Change to your valid .ico path
+ICON_PATH = "C:/Users/Hari.Srinivas/Downloads/images.png"
 
-# Ensure download directory exists
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# --- Setup Browser ---
+# Setup Chrome
 options = Options()
-options.add_argument("--headless")  # Uncomment for headless run
+options.add_argument("--headless")
 options.add_argument("--window-size=1200,800")
-options.add_argument("--disable-logging")
 options.add_experimental_option("excludeSwitches", ["enable-logging"])
-
 service = Service(ChromeDriverManager().install())
 driver = webdriver.Chrome(service=service, options=options)
 wait = WebDriverWait(driver, 20)
 
-# --- Summary Trackers ---
+# --- Tracker Summary ---
 downloaded = []
 already_present = []
 no_pdf = []
 skipped_future = []
 
-# --- Main Execution ---
 try:
-    driver.get(BASE_URL)
-    wait.until(EC.presence_of_element_located((By.ID, "energy_name")))
-    Select(driver.find_element(By.ID, "energy_name")).select_by_visible_text(ENERGY_NAME)
-    Select(driver.find_element(By.ID, "year")).select_by_visible_text(YEAR)
-
-    for month_name, month_num in MONTH_INDEX.items():
-        print(f"\n📅 Processing {month_name} {YEAR}...")
-        now = datetime.now()
-        month_date = datetime(int(YEAR), int(month_num), 1)
-        if month_date > now:
-            print(f"⏩ Skipped {month_name} – Future month.")
-            skipped_future.append(month_name)
-            continue
-
-        # Reselect elements before each submission
-        Select(driver.find_element(By.ID, "month")).select_by_visible_text(month_name)
-        submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit' and contains(@class, 'btn-primary')]")))
-        driver.execute_script("arguments[0].click();", submit_btn)
+    for ENERGY_NAME in ENERGY_NAMES:
+        print(f"\n🔄 Processing ENERGY: {ENERGY_NAME}")
+        driver.get(BASE_URL)
+        wait.until(EC.presence_of_element_located((By.ID, "energy_name")))
 
         try:
-            # Wait for all matching PDFs to load
-            pdf_links = wait.until(
-                EC.presence_of_all_elements_located(
-                    (By.XPATH, f"//a[contains(@href, '{ENERGY_NAME}') and contains(@href, '.pdf')]")
+            Select(driver.find_element(By.ID, "energy_name")).select_by_visible_text(ENERGY_NAME)
+        except:
+            print(f"❌ ENERGY_NAME not found in dropdown: {ENERGY_NAME}")
+            continue
+
+        Select(driver.find_element(By.ID, "year")).select_by_visible_text(YEAR)
+
+        for month_name, month_num in MONTH_INDEX.items():
+            print(f"📅 {ENERGY_NAME} → {month_name} {YEAR}")
+            now = datetime.now()
+            month_date = datetime(int(YEAR), int(month_num), 1)
+            if month_date > now:
+                print(f"⏩ Skipped {month_name} – Future month.")
+                skipped_future.append(f"{ENERGY_NAME}-{month_name}")
+                continue
+
+            # Refresh dropdown each loop
+            Select(driver.find_element(By.ID, "month")).select_by_visible_text(month_name)
+            submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']")))
+            driver.execute_script("arguments[0].click();", submit_btn)
+
+            try:
+                pdf_links = wait.until(
+                    EC.presence_of_all_elements_located(
+                        (By.XPATH, f"//a[contains(@href, '{ENERGY_NAME}') and contains(@href, '.pdf')]")
+                    )
                 )
-            )
 
-            if not pdf_links:
-                print(f"❌ No PDFs found for {month_name}")
-                no_pdf.append(month_name)
-                continue
+                if not pdf_links:
+                    print(f"❌ No PDFs found for {ENERGY_NAME} → {month_name}")
+                    no_pdf.append(f"{ENERGY_NAME}-{month_name}")
+                    continue
 
-            # Attempt to sort by suffix (timestamp or ID), fallback to last link
-            pdf_info = []
-            for link in pdf_links:
-                href = link.get_attribute("href")
-                if "-" in href and href.endswith(".pdf"):
-                    suffix = href.split("-")[-1].replace(".pdf", "")
+                # Try to select most recent version
+                pdf_info = []
+                for link in pdf_links:
+                    href = link.get_attribute("href")
+                    if "-" in href and href.endswith(".pdf"):
+                        suffix = href.split("-")[-1].replace(".pdf", "")
+                    else:
+                        suffix = ""
+                    pdf_info.append((suffix, href))
+
+                if any(suffix for suffix, _ in pdf_info):
+                    # Case: There is a suffix — sort and use it
+                    pdf_info.sort(reverse=True, key=lambda x: x[0])
+                    selected_suffix, selected_href = pdf_info[0]
+                    filename = f"{ENERGY_NAME}_{YEAR}_{month_name}_{selected_suffix}.pdf"
                 else:
-                    suffix = ""  # No suffix
-                pdf_info.append((suffix, href))
+                    # Case: No suffix — use the filename from the URL
+                    selected_href = pdf_info[-1][1]
+                    base_pdf_name = os.path.basename(selected_href).split("?")[0].replace(".pdf", "")
+                    filename = f"{base_pdf_name}_{month_name}_{YEAR}.pdf"
 
-            if any(suffix for suffix, _ in pdf_info):
-                # If at least one suffix is present, sort by suffix
-                pdf_info.sort(reverse=True, key=lambda x: x[0])
-                selected_suffix, selected_href = pdf_info[0]
-            else:
-                # No suffixes — fallback to last link
-                selected_suffix, selected_href = "vLast", pdf_info[-1][1]
+                # Sanitize file name
+                filename = filename.replace(" ", "_").replace("(", "").replace(")", "")
+                file_path = os.path.join(DOWNLOAD_DIR, filename)
 
-            # Generate filename
-            filename = f"{ENERGY_NAME}_{YEAR}_{month_name}_{selected_suffix}.pdf"
-            filename = filename.replace(" ", "_").replace("(", "").replace(")", "")
-            file_path = os.path.join(DOWNLOAD_DIR, filename)
+                if os.path.exists(file_path):
+                    print(f"✔️ Already exists: {filename}")
+                    already_present.append(f"{ENERGY_NAME}-{month_name}")
+                    continue
 
-            if os.path.exists(file_path):
-                print(f"✔️ Already exists: {filename}")
-                already_present.append(month_name)
-                continue
+                print(f"📥 Downloading: {selected_href}")
+                response = requests.get(selected_href)
+                with open(file_path, "wb") as f:
+                    f.write(response.content)
 
-            print(f"📥 Downloading latest: {selected_href}")
-            response = requests.get(selected_href)
-            with open(file_path, "wb") as f:
-                f.write(response.content)
-            print(f"✅ Saved: {file_path}")
-            downloaded.append(month_name)
+                print(f"✅ Saved: {file_path}")
+                downloaded.append(f"{ENERGY_NAME}-{month_name}")
 
-
-        except TimeoutException:
-            print(f"❌ Timeout: No PDFs found for {month_name}")
-            no_pdf.append(month_name)
+            except TimeoutException:
+                print(f"❌ Timeout: No PDFs for {ENERGY_NAME} → {month_name}")
+                no_pdf.append(f"{ENERGY_NAME}-{month_name}")
 
 finally:
     driver.quit()
@@ -124,23 +134,22 @@ finally:
 # --- Notification Summary ---
 summary_lines = []
 if downloaded:
-    summary_lines.append(f"📥 New: {', '.join(downloaded)}")
+    summary_lines.append(f"📥 Downloaded: {', '.join(downloaded)}")
 if already_present:
     summary_lines.append(f"✔️ Existing: {', '.join(already_present)}")
 if no_pdf:
-    summary_lines.append(f"❌ Not Available: {', '.join(no_pdf)}")
+    summary_lines.append(f"❌ No PDFs: {', '.join(no_pdf)}")
 if skipped_future:
-    summary_lines.append(f"⏩ Skipped: {', '.join(skipped_future)}")
+    summary_lines.append(f"⏩ Future Skipped: {', '.join(skipped_future)}")
 
-notification_message = "\n".join(summary_lines) or "No actions taken."
+msg = "\n".join(summary_lines) if summary_lines else "No activity."
 
 toast = Notification(
-    app_id="SLDC Gujarat Script",
-    title="📊 SLDC Gujarat Summary",
-    msg=notification_message,
-    duration="long",  # Stays ~25 sec then moves to Action Center
+    app_id="SLDC Gujarat Multi-Energy",
+    title="🔄 SLDC PDF Download Summary",
+    msg=msg,
+    duration="long",
     icon=ICON_PATH if os.path.exists(ICON_PATH) else None
 )
-
 toast.set_audio(audio.Default, loop=False)
 toast.show()
