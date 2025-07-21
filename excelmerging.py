@@ -1,8 +1,8 @@
 import os
 import pandas as pd
 
-input_folder = "excel_conversion"
-output_file = "downloads/cleanmax_final_combined.xlsx"
+input_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
+output_file = "all_combined_excel_files/cleanmax_final_combined.xlsx"
 
 # Month ordering to preserve natural month-wise merging
 MONTH_INDEX = {
@@ -12,7 +12,7 @@ MONTH_INDEX = {
 
 # Expected columns
 columns = [
-    "Sr No", "Date", "", "Name of Wind Farm Owner", "DISCOM\nAllocation",
+    "Sr No", "Date", "Name of Wind Farm Owner", "DISCOM\nAllocation",
     "UNDER\nREC\nMechanism", "Installed\nCapacity (MW)",
     "Share in\nActive Energy\n(Mwh)", "Share in Reactive\nEnergy (Mvarh)"
 ]
