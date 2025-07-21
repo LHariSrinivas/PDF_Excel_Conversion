@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 from collections import defaultdict
+from winotify import Notification, audio
 
 # 📁 Input/Output paths
 input_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
@@ -73,3 +74,12 @@ for energy_name, files in energy_sites.items():
         print(f"✅ Combined Excel created: {combined_path}")
     else:
         print(f"⚠️ No valid data found for {energy_name}")
+
+toast = Notification(
+    app_id="SLDC Gujarat Data",
+    title="Excel Merging",
+    msg="All Excel Files have been Merged Successfully.",
+    duration="long"
+)
+toast.set_audio(audio.Default, loop=False)
+toast.show()
