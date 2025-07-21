@@ -111,10 +111,10 @@ try:
                 filename = filename.replace(" ", "_").replace("(", "").replace(")", "")
                 file_path = os.path.join(DOWNLOAD_DIR, filename)
 
-                if os.path.exists(file_path):
-                    print(f"✔️ Already exists: {filename}")
-                    already_present.append(f"{ENERGY_NAME}-{month_name}")
-                    continue
+                # if os.path.exists(file_path):
+                #     print(f"✔️ Already exists: {filename}")
+                #     already_present.append(f"{ENERGY_NAME}-{month_name}")
+                #     continue
 
                 print(f"📥 Downloading: {selected_href}")
                 response = requests.get(selected_href)
