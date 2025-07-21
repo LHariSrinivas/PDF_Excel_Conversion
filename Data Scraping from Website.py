@@ -111,10 +111,10 @@ try:
                 filename = filename.replace(" ", "_").replace("(", "").replace(")", "")
                 file_path = os.path.join(DOWNLOAD_DIR, filename)
 
-                # if os.path.exists(file_path):
-                #     print(f"✔️ Already exists: {filename}")
-                #     already_present.append(f"{ENERGY_NAME}-{month_name}")
-                #     continue
+                if os.path.exists(file_path):
+                    print(f"✔️ Already exists: {filename}")
+                    already_present.append(f"{ENERGY_NAME}-{month_name}")
+                    continue
 
                 print(f"📥 Downloading: {selected_href}")
                 response = requests.get(selected_href)
@@ -130,24 +130,42 @@ try:
 
 finally:
     driver.quit()
+from collections import defaultdict
 
-# --- Notification Summary ---
-summary_lines = []
-if downloaded:
-    summary_lines.append(f"📥 Downloaded: {', '.join(downloaded)}")
-if already_present:
-    summary_lines.append(f"✔️ Existing: {', '.join(already_present)}")
-if no_pdf:
-    summary_lines.append(f"❌ No PDFs: {', '.join(no_pdf)}")
-if skipped_future:
-    summary_lines.append(f"⏩ Future Skipped: {', '.join(skipped_future)}")
+# --- Grouped Summary by ENERGY_NAME ---
+status_map = defaultdict(lambda: defaultdict(list))
 
-msg = "\n".join(summary_lines) if summary_lines else "No activity."
+for entry in downloaded:
+    energy, month = entry.rsplit("-", 1)
+    status_map[energy]["✅ Downloaded"].append(month)
 
+for entry in already_present:
+    energy, month = entry.rsplit("-", 1)
+    status_map[energy]["✔️ Existing"].append(month)
+
+for entry in no_pdf:
+    energy, month = entry.rsplit("-", 1)
+    status_map[energy]["❌ Not Found"].append(month)
+
+for entry in skipped_future:
+    energy, month = entry.rsplit("-", 1)
+    status_map[energy]["⏩ Skipped"].append(month)
+
+# --- Format Notification ---
+lines = []
+for energy, statuses in status_map.items():
+    lines.append(f"📌 {energy}")
+    for status, months in statuses.items():
+        months_str = ", ".join(months)
+        lines.append(f"  {status}: {months_str}")
+
+summary_msg = "\n".join(lines) or "No files processed."
+
+# --- Toast Notification ---
 toast = Notification(
     app_id="SLDC Gujarat Multi-Energy",
-    title="🔄 SLDC PDF Download Summary",
-    msg=msg,
+    title="🔔 SLDC Download Summary",
+    msg=summary_msg,
     duration="long",
     icon=ICON_PATH if os.path.exists(ICON_PATH) else None
 )
