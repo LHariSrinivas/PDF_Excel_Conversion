@@ -1,73 +1,75 @@
 import os
 import pandas as pd
+from collections import defaultdict
 
+# 📁 Input/Output paths
 input_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
-output_file = "all_combined_excel_files/cleanmax_final_combined.xlsx"
+output_folder = "all_combined_excel_files"
+os.makedirs(output_folder, exist_ok=True)
 
-# Month ordering to preserve natural month-wise merging
+# 📅 Month order to sort files
 MONTH_INDEX = {
     "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
     "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
 }
 
-# Expected columns
-columns = [
-    "Sr No", "Date", "Name of Wind Farm Owner", "DISCOM\nAllocation",
-    "UNDER\nREC\nMechanism", "Installed\nCapacity (MW)",
-    "Share in\nActive Energy\n(Mwh)", "Share in Reactive\nEnergy (Mvarh)"
-]
-
+# 📦 Get month index from filename
 def get_month_index(filename):
     for month_abbr, idx in MONTH_INDEX.items():
         if month_abbr in filename.upper():
             return idx
-    return 999  # If no match, push to end
+    return 999
 
-# Gather all Excel files and sort by month index
-files = [
-    f for f in os.listdir(input_folder) if f.lower().endswith(".xlsx")
-]
-files = sorted(files, key=get_month_index)
+# 📁 Group files by energy site
+energy_sites = defaultdict(list)
+for file in os.listdir(input_folder):
+    if file.lower().endswith(".xlsx"):
+        energy_name = file.split("_")[0]
+        energy_sites[energy_name].append(file)
 
-# Merged data containers
-all_wind_data = []
-all_solar_data = []
+# 🔁 Merge files for each energy site
+for energy_name, files in energy_sites.items():
+    print(f"\n🔧 Merging for site: {energy_name}")
+    files_sorted = sorted(files, key=get_month_index)
 
-# Process each file
-for filename in files:
-    filepath = os.path.join(input_folder, filename)
-    print(f"📂 Adding: {filename}")
+    wind_data_all = []
+    solar_data_all = []
 
-    try:
-        wind_df = pd.read_excel(filepath, sheet_name="Wind Energy", dtype=str, engine="openpyxl")
-        solar_df = pd.read_excel(filepath, sheet_name="Solar Energy", dtype=str, engine="openpyxl")
+    for file in files_sorted:
+        path = os.path.join(input_folder, file)
+        print(f"   📄 Reading: {file}")
+        try:
+            wind_df = pd.read_excel(path, sheet_name="Wind Energy", dtype=str, engine="openpyxl")
+            solar_df = pd.read_excel(path, sheet_name="Solar Energy", dtype=str, engine="openpyxl")
 
-        if "Date" not in wind_df.columns or "Date" not in solar_df.columns:
-            print(f"⚠️ Skipped {filename} — Missing 'Date' column")
-            continue
+            # 🛡️ Ensure Date column exists
+            if "Date" not in wind_df.columns or "Date" not in solar_df.columns:
+                print(f"   ⚠️ Skipped — 'Date' column missing in {file}")
+                continue
 
-        # Preserve original order and structure
-        wind_df = wind_df[[col for col in columns if col in wind_df.columns]]
-        solar_df = solar_df[[col for col in columns if col in solar_df.columns]]
+            # # 🧹 Drop fully empty columns (including headers!)
+            # wind_df = wind_df.dropna(axis=1, how='all')
+            # solar_df = solar_df.dropna(axis=1, how='all')
 
-        all_wind_data.append(wind_df)
-        all_solar_data.append(solar_df)
+            wind_data_all.append(wind_df)
+            solar_data_all.append(solar_df)
 
-    except Exception as e:
-        print(f"❌ Error with '{filename}' → {type(e).__name__}: {e}")
+        except Exception as e:
+            print(f"   ❌ Error in {file}: {e}")
 
-# Export merged file
-with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
-    if all_wind_data:
-        wind_merged = pd.concat(all_wind_data, ignore_index=True)
-        wind_merged["Sr No"] = range(1, len(wind_merged) + 1)
-        wind_merged = wind_merged.astype(str)
-        wind_merged.to_excel(writer, sheet_name="Wind Energy", index=False)
+    if wind_data_all or solar_data_all:
+        combined_path = os.path.join(output_folder, f"{energy_name}_combined.xlsx")
+        with pd.ExcelWriter(combined_path, engine="openpyxl") as writer:
+            if wind_data_all:
+                wind_merged = pd.concat(wind_data_all, ignore_index=True)
+                wind_merged["Sr No"] = range(1, len(wind_merged) + 1)
+                wind_merged.to_excel(writer, sheet_name="Wind Energy", index=False)
 
-    if all_solar_data:
-        solar_merged = pd.concat(all_solar_data, ignore_index=True)
-        solar_merged["Sr No"] = range(1, len(solar_merged) + 1)
-        solar_merged = solar_merged.astype(str)
-        solar_merged.to_excel(writer, sheet_name="Solar Energy", index=False)
+            if solar_data_all:
+                solar_merged = pd.concat(solar_data_all, ignore_index=True)
+                solar_merged["Sr No"] = range(1, len(solar_merged) + 1)
+                solar_merged.to_excel(writer, sheet_name="Solar Energy", index=False)
 
-print(f"\n✅ Merged file created in monthly order: {output_file}")
+        print(f"✅ Combined Excel created: {combined_path}")
+    else:
+        print(f"⚠️ No valid data found for {energy_name}")
