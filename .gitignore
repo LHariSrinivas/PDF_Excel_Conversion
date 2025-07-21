@@ -1,3 +1,9 @@
 downloads/
 excel_conversion/
-/cleanmax_final_combined.xlsx
+all_combined_excel_files/
+run_script.bat
+Testing chromeriver.py
+Data Scraping from Website copy.py
+checking_values_of_pdf.py
+pdftoexcelcode copy.py
+excelmerging copy.py
