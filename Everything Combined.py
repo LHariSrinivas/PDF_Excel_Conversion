@@ -9,12 +9,12 @@ from webdriver_manager.chrome import ChromeDriverManager
 from winotify import Notification, audio
 import pdfplumber
 import pandas as pd
-from winotify import Notification, audio
 import re
 import os
 import requests
 from datetime import datetime
 import pandas as pd
+from collections import defaultdict
 from collections import defaultdict
 
 def pdf_extraction():
@@ -45,11 +45,11 @@ def pdf_extraction():
     options.add_experimental_option("excludeSwitches", ["enable-logging"])
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
-    wait = WebDriverWait(driver, 20)
+    wait = WebDriverWait(driver, 10)
 
     # --- Tracker Summary ---
     downloaded = []
-    already_present = []
+    # already_present = [] Commenting this part out to tackle new revision if it occurs.
     no_pdf = []
     skipped_future = []
 
@@ -118,10 +118,10 @@ def pdf_extraction():
                     filename = filename.replace(" ", "_").replace("(", "").replace(")", "")
                     file_path = os.path.join(DOWNLOAD_DIR, filename)
 
-                    if os.path.exists(file_path):
-                        print(f"✔️ Already exists: {filename}")
-                        already_present.append(f"{ENERGY_NAME}-{month_name}")
-                        continue
+                    # if os.path.exists(file_path):
+                    #     print(f"✔️ Already exists: {filename}")
+                    #     already_present.append(f"{ENERGY_NAME}-{month_name}")
+                    #     continue
 
                     print(f"📥 Downloading: {selected_href}")
                     response = requests.get(selected_href)
@@ -137,7 +137,6 @@ def pdf_extraction():
 
     finally:
         driver.quit()
-    from collections import defaultdict
 
     # --- Grouped Summary by ENERGY_NAME ---
     status_map = defaultdict(lambda: defaultdict(list))
@@ -146,9 +145,9 @@ def pdf_extraction():
         energy, month = entry.rsplit("-", 1)
         status_map[energy]["✅ Downloaded"].append(month)
 
-    for entry in already_present:
-        energy, month = entry.rsplit("-", 1)
-        status_map[energy]["✔️ Existing"].append(month)
+    # for entry in already_present:
+    #     energy, month = entry.rsplit("-", 1)
+    #     status_map[energy]["✔️ Existing"].append(month)
 
     for entry in no_pdf:
         energy, month = entry.rsplit("-", 1)
@@ -181,7 +180,6 @@ def pdf_extraction():
 
 def excel_conversion():
 
-    # Set folder paths
     input_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
     output_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
     os.makedirs(output_folder, exist_ok=True)
@@ -296,14 +294,16 @@ def excel_conversion():
         app_id="SLDC Gujarat Data",
         title="PDF to Excel Conversion",
         msg="Wind & Solar data (across pages) saved successfully.",
-        duration="shaort"
+        duration="short"
     )
     toast.set_audio(audio.Default, loop=False)
     toast.show()
 
 def excel_merging():
     input_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
-    output_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/all_combined_excel_files"
+    # output_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/all_combined_excel_files"
+
+    output_folder = "C:/Users/Hari.Srinivas/OneDrive - CMES/SLDCGuj all Combined Excel"
     os.makedirs(output_folder, exist_ok=True)
 
     # 📅 Month order to sort files
