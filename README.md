@@ -143,12 +143,6 @@ All three functions (`pdf_extraction`, `excel_conversion`, `excel_merging`) will
 
 ---
 
-```bash
-br
-```
-
----
-
 ## 🧹 Dependencies
 
 - `selenium` – Browser automation
