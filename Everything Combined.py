@@ -13,8 +13,6 @@ import re
 import os
 import requests
 from datetime import datetime
-import pandas as pd
-from collections import defaultdict
 from collections import defaultdict
 
 def pdf_extraction():
