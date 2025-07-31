@@ -15,6 +15,7 @@ def extract_date_from_filename(base_name):
         year = match.group(1)
         mon = match.group(2).upper()
     else:
+        # Try alternate pattern: _MON_YYYY
         match = re.search(r"_([A-Z]{3})_(\d{4})", base_name)
         if match:
             mon = match.group(1).upper()
@@ -70,12 +71,23 @@ def extract_sections(pdf_path):
                         if not wind_header:
                             wind_header = clean_row
                         elif len(clean_row) == len(wind_header):
-                            wind_rows.append(clean_row)
+                            row_text = " ".join(clean_row).upper()
+                            if "SEPC" in base_name:
+                                if "CLEAN MAX" in row_text or "CLEANMAX" in row_text:
+                                    wind_rows.append(clean_row)
+                            else:
+                                wind_rows.append(clean_row)
+
                     elif current_section == "solar" and not solar_done:
                         if not solar_header:
                             solar_header = clean_row
                         elif len(clean_row) == len(solar_header):
-                            solar_rows.append(clean_row)
+                            row_text = " ".join(clean_row).upper()
+                            if "SEPC" in base_name:
+                                if "CLEAN MAX" in row_text or "CLEANMAX" in row_text:
+                                    solar_rows.append(clean_row)                                    
+                            else:
+                                solar_rows.append(clean_row)
 
     return wind_header, wind_rows, solar_header, solar_rows
 
@@ -103,8 +115,22 @@ for filename in os.listdir(input_folder):
 
     if not df_wind.empty:
         df_wind.insert(1, "Date", date_str)
+
+        # for col in df_wind.columns:
+        #     if col in "Sr No":
+        #         df_wind[col] = range(1, len(df_wind)+1)
+
+        if "Sr No" in df_wind.columns:
+            df_wind["Sr No"] = range(1, len(df_wind)+1)
+
     if not df_solar.empty:
         df_solar.insert(1, "Date", date_str)
+
+        # for col in df_solar.columns:
+        #     if col in "Sr No":
+        #         df_solar[col] = range(1, len(df_solar)+1)
+        if "Sr No" in df_solar.columns:
+            df_solar["Sr No"] = range(1, len(df_solar)+1)
 
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         if not df_wind.empty:

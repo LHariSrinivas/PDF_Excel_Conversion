@@ -22,7 +22,8 @@ def pdf_extraction():
                 "66KVYASHASWA(HYBRID)",
                 "SANATHAL(HEM_URJA_HYBRID)",
                 "MOTA_DEVLIYA(HETENERGY_HYBRID)",
-                "66KVCLEANMAXPIPARADI(HYBRID)"
+                "66KVCLEANMAXPIPARADI(HYBRID)",
+                "SEPC(HYBRID)"
                 ]
     YEAR = "2025"
     MONTH_INDEX = {
@@ -276,8 +277,15 @@ def excel_conversion():
 
         if not df_wind.empty:
             df_wind.insert(1, "Date", date_str)
+
+            if "Sr No" in df_wind.columns:
+                df_wind["Sr No"] = range(1, len(df_wind)+1)
+
         if not df_solar.empty:
             df_solar.insert(1, "Date", date_str)
+
+            if "Sr No" in df_solar.columns:
+                df_solar["Sr No"] = range(1, len(df_solar)+1)
 
         with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
             if not df_wind.empty:

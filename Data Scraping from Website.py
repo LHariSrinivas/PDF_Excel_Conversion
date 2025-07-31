@@ -17,7 +17,8 @@ ENERGY_NAMES = ["HETENERGY(BHILDI-HYBRID)",
                "66KVYASHASWA(HYBRID)",
                "SANATHAL(HEM_URJA_HYBRID)",
                "MOTA_DEVLIYA(HETENERGY_HYBRID)",
-               "66KVCLEANMAXPIPARADI(HYBRID)"
+               "66KVCLEANMAXPIPARADI(HYBRID)",
+               "SEPC(HYBRID)"
                ]
 YEAR = "2025"
 MONTH_INDEX = {
