@@ -14,12 +14,14 @@ from datetime import datetime
 
 # --- Configuration ---
 ENERGY_NAMES = ["HETENERGY(BHILDI-HYBRID)",
-               "66KVYASHASWA(HYBRID)",
-               "SANATHAL(HEM_URJA_HYBRID)",
-               "MOTA_DEVLIYA(HETENERGY_HYBRID)",
-               "66KVCLEANMAXPIPARADI(HYBRID)",
-               "SEPC(HYBRID)"
-               ]
+            "66KVYASHASWA(HYBRID)",
+            "SANATHAL(HEM_URJA_HYBRID)",
+            "MOTA_DEVLIYA(HETENERGY_HYBRID)",
+            "66KVCLEANMAXPIPARADI(HYBRID)",
+            "SEPC(HYBRID)",
+            "66_KV_MOTA_KHIJADIYA(SALPIPALIYA_WF)",
+            "66_KV_MOTA_KHIJADIYA(SALPIPALIYA_HYBRID)"
+            ]
 YEAR = "2025"
 MONTH_INDEX = {
     "JAN": "1", "FEB": "2", "MAR": "3", "APR": "4",
@@ -81,7 +83,7 @@ try:
                         (By.XPATH, f"//a[contains(@href, '{ENERGY_NAME}') and contains(@href, '.pdf')]")
                     )
                 )
-
+                
                 if not pdf_links:
                     print(f"❌ No PDFs found for {ENERGY_NAME} → {month_name}")
                     no_pdf.append(f"{ENERGY_NAME}-{month_name}")
