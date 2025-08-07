@@ -4,8 +4,8 @@ from collections import defaultdict
 from winotify import Notification, audio
 
 # 📁 Input/Output paths
-input_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
-output_folder = "all_combined_excel_files"
+input_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
+output_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/all_combined_excel_files"
 os.makedirs(output_folder, exist_ok=True)
 
 # 📅 Month order to sort files

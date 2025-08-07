@@ -5,8 +5,8 @@ from winotify import Notification, audio
 import re
 
 # Set folder paths
-input_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
-output_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
+input_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
+output_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
 os.makedirs(output_folder, exist_ok=True)
 
 def extract_date_from_filename(base_name):

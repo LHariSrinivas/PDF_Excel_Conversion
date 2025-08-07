@@ -29,7 +29,7 @@ MONTH_INDEX = {
     "SEP": "9", "OCT": "10", "NOV": "11", "DEC": "12"
 }
 BASE_URL = "https://www.sldcguj.com/Energy_Block_New.php"
-DOWNLOAD_DIR = "D:/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
+DOWNLOAD_DIR = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
 ICON_PATH = "C:/Users/Hari.Srinivas/Downloads/images.png"
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)

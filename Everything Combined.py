@@ -32,7 +32,7 @@ def pdf_extraction():
         "SEP": "9", "OCT": "10", "NOV": "11", "DEC": "12"
     }
     BASE_URL = "https://www.sldcguj.com/Energy_Block_New.php"
-    DOWNLOAD_DIR = "D:/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
+    DOWNLOAD_DIR = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
     ICON_PATH = "C:/Users/Hari.Srinivas/Downloads/images.png"
 
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -178,9 +178,8 @@ def pdf_extraction():
     toast.show()
 
 def excel_conversion():
-
-    input_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
-    output_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
+    input_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
+    output_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
     os.makedirs(output_folder, exist_ok=True)
 
     def extract_date_from_filename(base_name):
@@ -189,6 +188,7 @@ def excel_conversion():
             year = match.group(1)
             mon = match.group(2).upper()
         else:
+            # Try alternate pattern: _MON_YYYY
             match = re.search(r"_([A-Z]{3})_(\d{4})", base_name)
             if match:
                 mon = match.group(1).upper()
@@ -244,12 +244,23 @@ def excel_conversion():
                             if not wind_header:
                                 wind_header = clean_row
                             elif len(clean_row) == len(wind_header):
-                                wind_rows.append(clean_row)
+                                row_text = " ".join(clean_row).upper()
+                                if "SEPC" in base_name:
+                                    if "CLEAN MAX" in row_text or "CLEANMAX" in row_text:
+                                        wind_rows.append(clean_row)
+                                else:
+                                    wind_rows.append(clean_row)
+
                         elif current_section == "solar" and not solar_done:
                             if not solar_header:
                                 solar_header = clean_row
                             elif len(clean_row) == len(solar_header):
-                                solar_rows.append(clean_row)
+                                row_text = " ".join(clean_row).upper()
+                                if "SEPC" in base_name:
+                                    if "CLEAN MAX" in row_text or "CLEANMAX" in row_text:
+                                        solar_rows.append(clean_row)                                    
+                                else:
+                                    solar_rows.append(clean_row)
 
         return wind_header, wind_rows, solar_header, solar_rows
 
@@ -278,12 +289,19 @@ def excel_conversion():
         if not df_wind.empty:
             df_wind.insert(1, "Date", date_str)
 
+            # for col in df_wind.columns:
+            #     if col in "Sr No":
+            #         df_wind[col] = range(1, len(df_wind)+1)
+
             if "Sr No" in df_wind.columns:
                 df_wind["Sr No"] = range(1, len(df_wind)+1)
 
         if not df_solar.empty:
             df_solar.insert(1, "Date", date_str)
 
+            # for col in df_solar.columns:
+            #     if col in "Sr No":
+            #         df_solar[col] = range(1, len(df_solar)+1)
             if "Sr No" in df_solar.columns:
                 df_solar["Sr No"] = range(1, len(df_solar)+1)
 
@@ -299,17 +317,17 @@ def excel_conversion():
     toast = Notification(
         app_id="SLDC Gujarat Data",
         title="PDF to Excel Conversion",
-        msg="Wind & Solar data (across pages) saved successfully.",
-        duration="short"
+        msg="Wind & Solar section data (across pages) saved successfully.",
+        duration="long"
     )
     toast.set_audio(audio.Default, loop=False)
     toast.show()
 
 def excel_merging():
-    input_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
+    input_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
     # output_folder = "D:/SLDC Gujarat Web Scraping + Excel Conversion/all_combined_excel_files"
 
-    output_folder = "C:/Users/Hari.Srinivas/OneDrive - CMES/SLDCGuj all Combined Excel"
+    output_folder = "D:/OneDrive - CMES/SLDCGuj all Combined Excel"
     os.makedirs(output_folder, exist_ok=True)
 
     # 📅 Month order to sort files
