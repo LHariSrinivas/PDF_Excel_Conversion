@@ -115,6 +115,7 @@ for filename in os.listdir(input_folder):
 
     if not df_wind.empty:
         df_wind.insert(1, "Date", date_str)
+        df_wind.rename(columns={"SSr No": "Sr No"}, inplace=True)
 
         # for col in df_wind.columns:
         #     if col in "Sr No":
@@ -125,6 +126,7 @@ for filename in os.listdir(input_folder):
 
     if not df_solar.empty:
         df_solar.insert(1, "Date", date_str)
+        df_solar.rename(columns={"SSr No": "Sr No"}, inplace=True)
 
         # for col in df_solar.columns:
         #     if col in "Sr No":
