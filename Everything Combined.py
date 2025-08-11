@@ -23,7 +23,9 @@ def pdf_extraction():
                 "SANATHAL(HEM_URJA_HYBRID)",
                 "MOTA_DEVLIYA(HETENERGY_HYBRID)",
                 "66KVCLEANMAXPIPARADI(HYBRID)",
-                "SEPC(HYBRID)"
+                "SEPC(HYBRID)",
+                "66_KV_MOTA_KHIJADIYA(SALPIPALIYA_WF)",
+                "66_KV_MOTA_KHIJADIYA(SALPIPALIYA_HYBRID)"
                 ]
     YEAR = "2025"
     MONTH_INDEX = {
@@ -265,6 +267,7 @@ def excel_conversion():
         return wind_header, wind_rows, solar_header, solar_rows
 
     # --- MAIN LOOP ---
+        # --- MAIN LOOP ---
     for filename in os.listdir(input_folder):
         if not filename.lower().endswith(".pdf"):
             continue
@@ -288,6 +291,7 @@ def excel_conversion():
 
         if not df_wind.empty:
             df_wind.insert(1, "Date", date_str)
+            df_wind.rename(columns={"SSr No": "Sr No"}, inplace=True)
 
             # for col in df_wind.columns:
             #     if col in "Sr No":
@@ -298,6 +302,7 @@ def excel_conversion():
 
         if not df_solar.empty:
             df_solar.insert(1, "Date", date_str)
+            df_solar.rename(columns={"SSr No": "Sr No"}, inplace=True)
 
             # for col in df_solar.columns:
             #     if col in "Sr No":
@@ -330,29 +335,38 @@ def excel_merging():
     output_folder = "D:/OneDrive - CMES/SLDCGuj all Combined Excel"
     os.makedirs(output_folder, exist_ok=True)
 
-    # 📅 Month order to sort files
     MONTH_INDEX = {
-        "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
-        "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
+    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+    "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
     }
 
-    # 📦 Get month index from filename
     def get_month_index(filename):
+        # Find first month in the filename
         for month_abbr, idx in MONTH_INDEX.items():
             if month_abbr in filename.upper():
                 return idx
         return 999
 
-    # 📁 Group files by energy site
+    def extract_site_name(filename):
+        filename = filename.replace(".xlsx", "")
+        parts = filename.split("_")
+        clean_parts = []
+        for part in parts:
+            if part.upper() in MONTH_INDEX:  # stop at month
+                break
+            if re.fullmatch(r"[a-fA-F0-9]{1,12}", part):  # skip random hash
+                continue
+            clean_parts.append(part)
+        return "_".join(clean_parts)
+
     energy_sites = defaultdict(list)
     for file in os.listdir(input_folder):
         if file.lower().endswith(".xlsx"):
-            energy_name = file.split("_")[0]
-            energy_sites[energy_name].append(file)
+            site_name = extract_site_name(file)
+            energy_sites[site_name].append(file)
 
-    # 🔁 Merge files for each energy site
-    for energy_name, files in energy_sites.items():
-        print(f"\n🔧 Merging for site: {energy_name}")
+    for site_name, files in energy_sites.items():
+        print(f"\n🔧 Merging for site: {site_name}")
         files_sorted = sorted(files, key=get_month_index)
 
         wind_data_all = []
@@ -362,17 +376,17 @@ def excel_merging():
             path = os.path.join(input_folder, file)
             print(f"   📄 Reading: {file}")
             try:
-                wind_df = pd.read_excel(path, sheet_name="Wind Energy", dtype=str, engine="openpyxl")
-                solar_df = pd.read_excel(path, sheet_name="Solar Energy", dtype=str, engine="openpyxl")
+                excel_files = pd.ExcelFile(path, engine="openpyxl")
+                wind_df = pd.read_excel(path, sheet_name="Wind Energy", dtype=str) if "Wind Energy" in excel_files.sheet_names else pd.DataFrame()
+                solar_df = pd.read_excel(path, sheet_name="Solar Energy", dtype=str) if "Solar Energy" in excel_files.sheet_names else pd.DataFrame()
 
-                # 🛡️ Ensure Date column exists
-                if "Date" not in wind_df.columns or "Date" not in solar_df.columns:
-                    print(f"   ⚠️ Skipped — 'Date' column missing in {file}")
-                    continue
+                if not wind_df.empty and "Date" not in wind_df.columns:
+                    print(f"   ⚠️ Skipped wind — 'Date' missing in {file}")
+                    wind_df = pd.DataFrame()
 
-                # # 🧹 Drop fully empty columns (including headers!)
-                # wind_df = wind_df.dropna(axis=1, how='all')
-                # solar_df = solar_df.dropna(axis=1, how='all')
+                if not solar_df.empty and "Date" not in solar_df.columns:
+                    print(f"   ⚠️ Skipped solar — 'Date' missing in {file}")
+                    solar_df = pd.DataFrame()
 
                 wind_data_all.append(wind_df)
                 solar_data_all.append(solar_df)
@@ -380,29 +394,30 @@ def excel_merging():
             except Exception as e:
                 print(f"   ❌ Error in {file}: {e}")
 
-        if wind_data_all or solar_data_all:
-            combined_path = os.path.join(output_folder, f"{energy_name}_combined.xlsx")
-            with pd.ExcelWriter(combined_path, engine="openpyxl") as writer:
-                if wind_data_all:
-                    wind_merged = pd.concat(wind_data_all, ignore_index=True)
-                    wind_merged["Sr No"] = range(1, len(wind_merged) + 1)
-                    wind_merged.to_excel(writer, sheet_name="Wind Energy", index=False)
+        combined_path = os.path.join(output_folder, f"{site_name}_combined.xlsx")
+        with pd.ExcelWriter(combined_path, engine="openpyxl") as writer:
+            if any(not df.empty for df in wind_data_all):
+                wind_merged = pd.concat([df for df in wind_data_all if not df.empty], ignore_index=True)
+                wind_merged["Sr No"] = range(1, len(wind_merged) + 1)
+                wind_merged.to_excel(writer, sheet_name="Wind Energy", index=False)
+            else:
+                pd.DataFrame(columns=["Sr No", "Date"]).to_excel(writer, sheet_name="Wind Energy", index=False)
 
-                if solar_data_all:
-                    solar_merged = pd.concat(solar_data_all, ignore_index=True)
-                    solar_merged["Sr No"] = range(1, len(solar_merged) + 1)
-                    solar_merged.to_excel(writer, sheet_name="Solar Energy", index=False)
+            if any(not df.empty for df in solar_data_all):
+                solar_merged = pd.concat([df for df in solar_data_all if not df.empty], ignore_index=True)
+                solar_merged["Sr No"] = range(1, len(solar_merged) + 1)
+                solar_merged.to_excel(writer, sheet_name="Solar Energy", index=False)
+            else:
+                pd.DataFrame(columns=["Sr No", "Date"]).to_excel(writer, sheet_name="Solar Energy", index=False)
 
-            print(f"✅ Combined Excel created: {combined_path}")
-        else:
-            print(f"⚠️ No valid data found for {energy_name}")
+        print(f"✅ Combined Excel created: {combined_path}")
 
     toast = Notification(
-    app_id="SLDC Gujarat Data",
-    title="Excel Merging",
-    msg="All Excel Files have been Merged Successfully.",
-    duration="long"
-)
+        app_id="SLDC Gujarat Data",
+        title="Excel Merging",
+        msg="All Excel Files have been Merged Successfully.",
+        duration="long"
+    )
     toast.set_audio(audio.Default, loop=False)
     toast.show()
 

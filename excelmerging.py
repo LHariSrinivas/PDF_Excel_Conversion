@@ -13,12 +13,12 @@ os.makedirs(output_folder, exist_ok=True)
 MONTH_INDEX = {
     "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
     "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
-}
+    }
 
-# 📦 Get month index from filename
 def get_month_index(filename):
+    # Find first month in the filename
     for month_abbr, idx in MONTH_INDEX.items():
-        if f"_{month_abbr}_" in filename.upper():
+        if month_abbr in filename.upper():
             return idx
     return 999
 
@@ -28,9 +28,9 @@ def extract_site_name(filename):
     parts = filename.split("_")
     clean_parts = []
     for part in parts:
-        if part.upper() in MONTH_INDEX: # Stop before month
+        if part.upper() in MONTH_INDEX:  # stop at month
             break
-        if re.fullmatch(r"[a-fA-F0-9]{1,12}", part): # Stop before month
+        if re.fullmatch(r"[a-fA-F0-9]{1,12}", part):  # skip random hash
             continue
         clean_parts.append(part)
     return "_".join(clean_parts)
@@ -60,16 +60,12 @@ for site_name, files in energy_sites.items():
 
             # 🛡️ Ensure Date column exists
             if not wind_df.empty and "Date" not in wind_df.columns:
-                print(f"   ⚠️ Skipped wind — 'Date' column missing in {file}")
+                print(f"   ⚠️ Skipped wind — 'Date' missing in {file}")
                 wind_df = pd.DataFrame()
 
             if not solar_df.empty and "Date" not in solar_df.columns:
-                print(f"   ⚠️ Skipped solar — 'Date' column missing in {file}")
+                print(f"   ⚠️ Skipped solar — 'Date' missing in {file}")
                 solar_df = pd.DataFrame()
-
-            # # 🧹 Drop fully empty columns (including headers!)
-            # wind_df = wind_df.dropna(axis=1, how='all')
-            # solar_df = solar_df.dropna(axis=1, how='all')
 
             wind_data_all.append(wind_df)
             solar_data_all.append(solar_df)
@@ -79,21 +75,22 @@ for site_name, files in energy_sites.items():
 
     combined_path = os.path.join(output_folder, f"{site_name}_combined.xlsx")
     with pd.ExcelWriter(combined_path, engine="openpyxl") as writer:
-
         if any(not df.empty for df in wind_data_all):
             wind_merged = pd.concat([df for df in wind_data_all if not df.empty], ignore_index=True)
             wind_merged["Sr No"] = range(1, len(wind_merged) + 1)
             wind_merged.to_excel(writer, sheet_name="Wind Energy", index=False)
         else:
-            pd.DataFrame().to_excel(writer, sheet_name="Wind Energy", index=False)
+            pd.DataFrame(columns=["Sr No", "Date"]).to_excel(writer, sheet_name="Wind Energy", index=False)
 
         if any(not df.empty for df in solar_data_all):
             solar_merged = pd.concat([df for df in solar_data_all if not df.empty], ignore_index=True)
             solar_merged["Sr No"] = range(1, len(solar_merged) + 1)
             solar_merged.to_excel(writer, sheet_name="Solar Energy", index=False)
         else:
-            pd.DataFrame().to_excel(writer, sheet_name="Solar Energy", index=False)
-                    
+            pd.DataFrame(columns=["Sr No", "Date"]).to_excel(writer, sheet_name="Solar Energy", index=False)
+
+    print(f"✅ Combined Excel created: {combined_path}")
+
 toast = Notification(
     app_id="SLDC Gujarat Data",
     title="Excel Merging",
