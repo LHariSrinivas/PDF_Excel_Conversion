@@ -416,7 +416,7 @@ def excel_merging():
         app_id="SLDC Gujarat Data",
         title="Excel Merging",
         msg="All Excel Files have been Merged Successfully.",
-        duration="long"
+        duration="short"
     )
     toast.set_audio(audio.Default, loop=False)
     toast.show()
