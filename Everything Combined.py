@@ -323,7 +323,7 @@ def excel_conversion():
         app_id="SLDC Gujarat Data",
         title="PDF to Excel Conversion",
         msg="Wind & Solar section data (across pages) saved successfully.",
-        duration="long"
+        duration="short"
     )
     toast.set_audio(audio.Default, loop=False)
     toast.show()
