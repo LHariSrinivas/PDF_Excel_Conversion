@@ -33,23 +33,67 @@ def extract_date_from_filename(base_name):
 def clean_empty_columns(df):
     return df.loc[:, ~((df.columns == "") & (df.replace('', pd.NA).isna().all()))]
 
+def align_to_header(row, header, section):
+    """
+    Expand/truncate a ragged row to match the header length.
+    Works for both Wind and Solar sections where pdfplumber collapses empty columns.
+    """
+    header_len = len(header)
+
+    # Case 1: Perfect match
+    if len(row) == header_len:
+        return row
+
+    # Case 2: Row shorter than header → re-map into key columns
+    if len(row) < header_len:
+        aligned = [""] * header_len
+        try:
+            aligned[0] = row[0]  # Sr No
+
+            if section == "wind":
+                aligned[4] = row[1]   # Wind Farm Owner
+                aligned[5] = row[2]   # DISCOM
+                aligned[6] = row[3]   # Under REC
+                aligned[8] = row[4]   # Installed Capacity
+                aligned[9] = row[5]   # Active Energy
+                aligned[11] = row[6]  # Reactive Energy
+
+            elif section == "solar":
+                aligned[4] = row[1]   # Solar Entity Name
+                aligned[5] = row[2]   # DISCOM
+                aligned[6] = row[3]   # Under REC
+                aligned[8] = row[4]   # Installed Capacity
+                aligned[9] = row[5]   # Active Energy
+                aligned[11] = row[6]  # Reactive Energy
+
+            return aligned
+        except IndexError:
+            return None  # malformed row → skip
+
+    # Case 3: Row longer than header → truncate
+    if len(row) > header_len:
+        return row[:header_len]
+
+    return None
+
 def extract_sections(pdf_path):
     wind_rows, solar_rows = [], []
     wind_header, solar_header = None, None
-    current_section = None  # None, 'wind', 'solar'
-    wind_done = solar_done = False
+    current_section = None
+    total_count = 0
 
     with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
+        for page_num, page in enumerate(pdf.pages):
             tables = page.extract_tables()
+            print(f"--- Processing page {page_num + 1} ---")
+
             for table in tables:
                 for row in table:
                     clean_row = [cell.strip() if cell else "" for cell in row]
-
                     if all(cell == "" for cell in clean_row):
                         continue
 
-                    # Detect start of sections
+                    # Section detection
                     if any("SHARE OF WIND FARM OWNER" in cell.upper() for cell in clean_row):
                         current_section = "wind"
                         continue
@@ -57,37 +101,40 @@ def extract_sections(pdf_path):
                         current_section = "solar"
                         continue
 
-                    # Stop capturing when TOTAL appears
+                    # Stop when TOTAL encountered
                     if any("TOTAL" in cell.upper() for cell in clean_row):
-                        if current_section == "wind":
-                            wind_done = True
-                        elif current_section == "solar":
-                            solar_done = True
+                        total_count += 1
                         current_section = None
                         continue
 
-                    # Capture data rows
-                    if current_section == "wind" and not wind_done:
-                        if not wind_header:
-                            wind_header = clean_row
-                        elif len(clean_row) == len(wind_header):
-                            row_text = " ".join(clean_row).upper()
-                            if "SEPC" in base_name:
-                                if "CLEAN MAX" in row_text or "CLEANMAX" in row_text:
-                                    wind_rows.append(clean_row)
-                            else:
-                                wind_rows.append(clean_row)
+                    # Capture headers
+                    if current_section == "wind" and not wind_header and "SR NO" in " ".join(clean_row).upper():
+                        wind_header = clean_row
+                        continue
+                    elif current_section == "solar" and not solar_header and "SOLAR ENTITY NAME" in " ".join(clean_row).upper():
+                        solar_header = clean_row
+                        continue
 
-                    elif current_section == "solar" and not solar_done:
-                        if not solar_header:
-                            solar_header = clean_row
-                        elif len(clean_row) == len(solar_header):
-                            row_text = " ".join(clean_row).upper()
-                            if "SEPC" in base_name:
+                    # Capture rows
+                    if current_section == "wind" and wind_header:
+                        norm_row = align_to_header(clean_row, wind_header, "wind")
+                        if norm_row:
+                            row_text = " ".join(norm_row).upper()
+                            if "SEPC" in base_name.upper():
                                 if "CLEAN MAX" in row_text or "CLEANMAX" in row_text:
-                                    solar_rows.append(clean_row)                                    
+                                    wind_rows.append(norm_row)
                             else:
-                                solar_rows.append(clean_row)
+                                wind_rows.append(norm_row)
+
+                    elif current_section == "solar" and solar_header:
+                        norm_row = align_to_header(clean_row, solar_header, "solar")
+                        if norm_row:
+                            row_text = " ".join(norm_row).upper()
+                            if "SEPC" in base_name.upper():
+                                if "CLEAN MAX" in row_text or "CLEANMAX" in row_text:
+                                    solar_rows.append(norm_row)
+                            else:
+                                solar_rows.append(norm_row)
 
     return wind_header, wind_rows, solar_header, solar_rows
 
