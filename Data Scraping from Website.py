@@ -14,14 +14,17 @@ from datetime import datetime
 
 # --- Configuration ---
 ENERGY_NAMES = ["HETENERGY(BHILDI-HYBRID)",
-            "66KVYASHASWA(HYBRID)",
-            "SANATHAL(HEM_URJA_HYBRID)",
-            "MOTA_DEVLIYA(HETENERGY_HYBRID)",
-            "66KVCLEANMAXPIPARADI(HYBRID)",
-            "SEPC(HYBRID)",
-            "66_KV_MOTA_KHIJADIYA(SALPIPALIYA_WF)",
-            "66_KV_MOTA_KHIJADIYA(SALPIPALIYA_HYBRID)"
-            ]
+                "66KVYASHASWA(HYBRID)",
+                "SANATHAL(HEM_URJA_HYBRID)",
+                "MOTA_DEVLIYA(HETENERGY_HYBRID)",
+                "66KVCLEANMAXPIPARADI(HYBRID)",
+                "SEPC(HYBRID)",
+                "66_KV_MOTA_KHIJADIYA(SALPIPALIYA_WF)",
+                "66_KV_MOTA_KHIJADIYA(SALPIPALIYA_HYBRID)",
+                "DHARAGAR(GNESL)",
+                "66 KV GHELDA(GNESL)",
+                "220KV_NAGPUR(OP_WIND)HYBRID"
+                ]
 YEAR = "2025"
 MONTH_INDEX = {
     "JAN": "1", "FEB": "2", "MAR": "3", "APR": "4",
@@ -36,6 +39,7 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 # Setup Chrome
 options = Options()
+options.binary_location = r"C:\Program Files\Google\Chrome\Application\chrome.exe"  # 👈 paste your path here
 options.add_argument("--headless")
 options.add_argument("--window-size=1200,800")
 options.add_experimental_option("excludeSwitches", ["enable-logging"])
@@ -70,6 +74,27 @@ try:
             if month_date > now:
                 print(f"⏩ Skipped {month_name} – Future month.")
                 skipped_future.append(f"{ENERGY_NAME}-{month_name}")
+                continue
+
+            # --- PRE-CHECK: skip if file already exists in DOWNLOAD_DIR ---
+            # Expected filename patterns that the downloader uses:
+            # 1) ENERGY_NAME_YEAR_MONTH_suffix.pdf
+            # 2) base_pdf_name_MONTH_YEAR.pdf
+            # We'll look for any file containing the site name and the month/year
+            site_key = ENERGY_NAME.replace(" ", "_").replace("(", "").replace(")", "")
+            expected_month_year = f"_{month_name}_{YEAR}"
+            already_found = False
+            for existing in os.listdir(DOWNLOAD_DIR):
+                if not existing.lower().endswith('.pdf'):
+                    continue
+                existing_up = existing.upper()
+                # normalize: check if site_key (upper) in filename and month and year present
+                if site_key.upper() in existing_up and month_name.upper() in existing_up and YEAR in existing_up:
+                    print(f"✔️ Already exists on disk, skipping scrape: {existing}")
+                    already_present.append(f"{ENERGY_NAME}-{month_name}")
+                    already_found = True
+                    break
+            if already_found:
                 continue
 
             # Refresh dropdown each loop
