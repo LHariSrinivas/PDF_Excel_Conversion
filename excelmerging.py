@@ -5,7 +5,7 @@ from winotify import Notification, audio
 import re
 
 # 📁 Input/Output paths
-input_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
+input_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion/copy"
 output_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/all_combined_excel_files"
 os.makedirs(output_folder, exist_ok=True)
 
@@ -30,8 +30,8 @@ def extract_site_name(filename):
     for part in parts:
         if part.upper() in MONTH_INDEX:  # stop at month
             break
-        if re.fullmatch(r"[a-fA-F0-9]{1,12}", part):  # skip random hash
-            continue
+        # if re.fullmatch(r"[a-fA-F0-9]{1,12}", part):  # skip random hash
+        #     continue
         clean_parts.append(part)
     return "_".join(clean_parts)
 
