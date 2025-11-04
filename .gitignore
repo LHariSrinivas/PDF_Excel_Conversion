@@ -1,11 +1,14 @@
+.venv/
+.gitignore
 downloads/
 excel_conversion/
 all_combined_excel_files/
 run_script.bat
-Testing chromeriver.py
 Data Scraping from Website copy.py
 checking_values_of_pdf.py
-pdftoexcelcode copy.py
 excelmerging copy.py
+pdftoexcelcode draft.py
+CompleteWorkingPDFtoExcel.py
+allpdftoexcelcodes.py
 sample_testing/
 SLDC Gujarat Web Scraping + Excel Conversion.code-workspace
