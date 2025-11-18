@@ -15,46 +15,64 @@ MONTH_INDEX = {
     "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
     }
 
-def get_month_index(filename):
-    # Find first month in the filename
-    for month_abbr, idx in MONTH_INDEX.items():
-        if month_abbr in filename.upper():
-            return idx
-    return 999
+# --- DELETED get_month_index ---
+# --- DELETED extract_site_name ---
 
-# Extract site name dynamically
-def extract_site_name(filename):
-    filename = filename.replace(".xlsx", "")
-    parts = filename.split("_")
-    clean_parts = []
-    for part in parts:
-        if part.upper() in MONTH_INDEX:  # stop at month
-            break
-        if re.fullmatch(r"[a-fA-F0-9]{1,12}", part):  # skip random hash
-            continue
-        clean_parts.append(part)
-    return "_".join(clean_parts)
+# --- NEW Grouping Logic ---
+# This regex captures (Site_Name)_(YYYY)_(MON).xlsx
+# It's non-greedy (.+?) to handle underscores in the site name
+file_pattern = re.compile(r"(.+?)_(\d{4})_([A-Z]{3})\.xlsx", re.I)
 
-# Group files by site name
 energy_sites = defaultdict(list)
 for file in os.listdir(input_folder):
-    if file.lower().endswith(".xlsx"):
-        site_name = extract_site_name(file)
-        energy_sites[site_name].append(file)
+    if not file.lower().endswith(".xlsx"):
+        continue
+    
+    match = file_pattern.match(file)
+    if match:
+        site_name = match.group(1)
+        year = int(match.group(2))
+        month_abbr = match.group(3).upper()
+        month_index = MONTH_INDEX.get(month_abbr, 99) # Get 1-12 index
+        
+        # Store the file and its sort key (year, month_index)
+        sort_key = (year, month_index)
+        energy_sites[site_name].append( (file, sort_key) )
+    else:
+        # Fallback for MON_YYYY pattern
+        file_pattern_alt = re.compile(r"(.+?)_([A-Z]{3})_(\d{4})\.xlsx", re.I)
+        match_alt = file_pattern_alt.match(file)
+        if match_alt:
+            site_name = match_alt.group(1)
+            year = int(match_alt.group(3))
+            month_abbr = match_alt.group(2).upper()
+            month_index = MONTH_INDEX.get(month_abbr, 99)
+            
+            sort_key = (year, month_index)
+            energy_sites[site_name].append( (file, sort_key) )
+        else:
+            print(f"⚠️ File '{file}' did not match pattern, skipping.")
 
 # 🔁 Merge files for each energy site 
-for site_name, files in energy_sites.items():
+for site_name, file_data_list in energy_sites.items():
     print(f"\n🔧 Merging for site: {site_name}")
-    files_sorted = sorted(files, key=get_month_index)
+    
+    # Sort the list based on the tuple (year, month_index)
+    # This is the fix for Bug #1
+    files_sorted_tuples = sorted(file_data_list, key=lambda item: item[1])
 
     wind_data_all = []
     solar_data_all = []
 
-    for file in files_sorted:
+    # Loop through the sorted tuples
+    for file_tuple in files_sorted_tuples:
+        file = file_tuple[0] # Get the filename from the tuple
         path = os.path.join(input_folder, file)
         print(f"   📄 Reading: {file}")
+        
         try:
             excel_files = pd.ExcelFile(path, engine="openpyxl")
+            # Use dtype=str to prevent pandas from breaking data
             wind_df = pd.read_excel(path, sheet_name="Wind Energy", dtype=str) if "Wind Energy" in excel_files.sheet_names else pd.DataFrame()
             solar_df = pd.read_excel(path, sheet_name="Solar Energy", dtype=str) if "Solar Energy" in excel_files.sheet_names else pd.DataFrame()
 
