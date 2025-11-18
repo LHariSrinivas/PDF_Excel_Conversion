@@ -6,7 +6,7 @@ import re
 
 # Set folder paths
 input_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
-output_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/sample_testing/pdftoexcel"
+output_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
 os.makedirs(output_folder, exist_ok=True) # Ensure output folder exists
 
 # --- UNWANTED_TEXT list for filtering ---

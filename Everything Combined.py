@@ -11,12 +11,13 @@ import pdfplumber
 import pandas as pd
 import re
 import os
-import requests
+import time
+import shutil
 from datetime import datetime
 from collections import defaultdict
 
 def pdf_extraction():
-    # --- Configuration ---
+        # --- Configuration ---
     ENERGY_NAMES = ["HETENERGY(BHILDI-HYBRID)",
                     "66KVYASHASWA(HYBRID)",
                     "SANATHAL(HEM_URJA_HYBRID)",
@@ -36,36 +37,101 @@ def pdf_extraction():
         "SEP": "9", "OCT": "10", "NOV": "11", "DEC": "12"
     }
     BASE_URL = "https://www.sldcguj.com/Energy_Block_New.php"
-    DOWNLOAD_DIR = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
-    ICON_PATH = "C:/Users/Hari.Srinivas/Downloads/images.png"
 
+    # set your folder
+    DOWNLOAD_DIR = r"D:\Projects\SLDC Gujarat Web Scraping + Excel Conversion\downloads"
+    ICON_PATH = r"C:\Users\Hari.Srinivas\Downloads\images.png"
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-    # Setup Chrome
+    # ---------------- Chrome Setup ----------------
+    chrome_path = shutil.which("chrome") or shutil.which("google-chrome")
+    if not chrome_path:
+        chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"  # fallback
+
+    prefs = {
+        "download.default_directory": DOWNLOAD_DIR,
+        "download.prompt_for_download": False,
+        "plugins.always_open_pdf_externally": True,
+        "profile.default_content_setting_values.automatic_downloads": 1
+    }
+
     options = Options()
-    options.binary_location = r"C:\Program Files\Google\Chrome\Application\chrome.exe"  # 👈 paste your path here
-    options.add_argument("--headless")
+    options.binary_location = chrome_path
+    options.add_experimental_option("prefs", prefs)
+    options.add_argument("--headless=new")
     options.add_argument("--window-size=1200,800")
     options.add_experimental_option("excludeSwitches", ["enable-logging"])
+
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     wait = WebDriverWait(driver, 20)
 
-    # --- Tracker Summary ---
+    # ---------------- Helpers ----------------
+    def sanitize_name(s: str) -> str:
+        # Keep letters, numbers, -, _, remove others and collapse spaces
+        bad = r'<>:"/\\|?*'
+        for ch in bad:
+            s = s.replace(ch, "")
+        s = s.replace(" ", "_")
+        s = s.replace("(", "").replace(")", "")
+        return s
+
+    def list_pdf_files(folder):
+        return [f for f in os.listdir(folder) if f.lower().endswith(".pdf")]
+
+    def list_partial_files(folder):
+        # capture Chrome partial download extension .crdownload
+        return [f for f in os.listdir(folder) if f.lower().endswith(".crdownload")]
+
+    def wait_for_new_file(folder, before_set, timeout=20, poll=0.5):
+        """
+        Wait up to timeout seconds for a new .pdf file to appear in folder that wasn't in before_set.
+        Returns the new filename (basename) or None.
+        """
+        end = time.time() + timeout
+        while time.time() < end:
+            current = set(list_pdf_files(folder))
+            new = current - before_set
+            # ensure no .crdownload present (download still in progress)
+            if new and not list_partial_files(folder):
+                # return the newest by modified time
+                new_files = list(new)
+                new_files.sort(key=lambda n: os.path.getmtime(os.path.join(folder, n)), reverse=True)
+                return new_files[0]
+            time.sleep(poll)
+        return None
+
+    def is_valid_pdf(path):
+        try:
+            with open(path, "rb") as f:
+                header = f.read(5)
+            return header == b"%PDF-"
+        except Exception:
+            return False
+
+    # ---------------- Trackers ----------------
     downloaded = []
     already_present = []
     no_pdf = []
     skipped_future = []
 
+    # ---------------- Main ----------------
     try:
         for ENERGY_NAME in ENERGY_NAMES:
+            normalized_energy_name = ENERGY_NAME.replace(" ", "").upper()
             print(f"\n🔄 Processing ENERGY: {ENERGY_NAME}")
             driver.get(BASE_URL)
-            wait.until(EC.presence_of_element_located((By.ID, "energy_name")))
+            # wait for dropdown (robust)
+            try:
+                wait.until(EC.presence_of_element_located((By.ID, "energy_name")))
+            except TimeoutException:
+                print("❌ energy_name dropdown not found; skipping this ENERGY.")
+                continue
 
+            # select energy; if not found skip
             try:
                 Select(driver.find_element(By.ID, "energy_name")).select_by_visible_text(ENERGY_NAME)
-            except:
+            except Exception:
                 print(f"❌ ENERGY_NAME not found in dropdown: {ENERGY_NAME}")
                 continue
 
@@ -80,129 +146,147 @@ def pdf_extraction():
                     skipped_future.append(f"{ENERGY_NAME}-{month_name}")
                     continue
 
-                # --- PRE-CHECK: skip if file already exists in DOWNLOAD_DIR ---
-                # Expected filename patterns that the downloader uses:
-                # 1) ENERGY_NAME_YEAR_MONTH_suffix.pdf
-                # 2) base_pdf_name_MONTH_YEAR.pdf
-                # We'll look for any file containing the site name and the month/year
-                site_key = ENERGY_NAME.replace(" ", "_").replace("(", "").replace(")", "")
-                expected_month_year = f"_{month_name}_{YEAR}"
-                already_found = False
-                for existing in os.listdir(DOWNLOAD_DIR):
-                    if not existing.lower().endswith('.pdf'):
-                        continue
-                    existing_up = existing.upper()
-                    # normalize: check if site_key (upper) in filename and month and year present
-                    if site_key.upper() in existing_up and month_name.upper() in existing_up and YEAR in existing_up:
-                        print(f"✔️ Already exists on disk, skipping scrape: {existing}")
-                        already_present.append(f"{ENERGY_NAME}-{month_name}")
-                        already_found = True
-                        break
-                if already_found:
+                # prepare target filename (deterministic)
+                safe_energy = sanitize_name(ENERGY_NAME)
+                target_filename = f"{safe_energy}_{YEAR}_{month_name}.pdf"
+                target_path = os.path.join(DOWNLOAD_DIR, target_filename)
+
+                # If already exists, skip (no overwrite)
+                if os.path.exists(target_path):
+                    print(f"✔️ Already exists (skipping): {target_filename}")
+                    already_present.append(f"{ENERGY_NAME}-{month_name}")
+                    # still select month in UI to keep consistent state, then continue
+                    Select(driver.find_element(By.ID, "month")).select_by_visible_text(month_name)
+                    submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']")))
+                    driver.execute_script("arguments[0].click();", submit_btn)
+                    time.sleep(0.5)
                     continue
 
-                # Refresh dropdown each loop
+                # Select month and submit
                 Select(driver.find_element(By.ID, "month")).select_by_visible_text(month_name)
                 submit_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']")))
                 driver.execute_script("arguments[0].click();", submit_btn)
 
                 try:
-                    pdf_links = wait.until(
-                        EC.presence_of_all_elements_located(
-                            (By.XPATH, f"//a[contains(@href, '{ENERGY_NAME}') and contains(@href, '.pdf')]")
-                        )
-                    )
-                    
+                    # Wait for PDF links to become present on the page (any .pdf link)
+                    wait.until(EC.presence_of_all_elements_located((By.XPATH, "//a[contains(@href, '.pdf')]")))
+                    # collect links and filter by normalized energy name presence in href
+                    all_links = driver.find_elements(By.XPATH, "//a[contains(@href, '.pdf')]")
+                    pdf_links = []
+                    for l in all_links:
+                        href = l.get_attribute("href") or ""
+                        if normalized_energy_name in href.replace(" ", "").upper():
+                            pdf_links.append(href)
+
                     if not pdf_links:
                         print(f"❌ No PDFs found for {ENERGY_NAME} → {month_name}")
                         no_pdf.append(f"{ENERGY_NAME}-{month_name}")
                         continue
 
-                    # Try to select most recent version
+                    # choose latest: prefer suffix timestamps; if none, choose last link in page order
                     pdf_info = []
-                    for link in pdf_links:
-                        href = link.get_attribute("href")
-                        if "-" in href and href.endswith(".pdf"):
+                    for href in pdf_links:
+                        if "-" in href and href.lower().endswith(".pdf"):
                             suffix = href.split("-")[-1].replace(".pdf", "")
                         else:
                             suffix = ""
                         pdf_info.append((suffix, href))
 
-                    if any(suffix for suffix, _ in pdf_info):
-                        # Case: There is a suffix — sort and use it
+                    # if any suffix present, sort by suffix desc; else keep original order and choose last
+                    if any(suf for suf, _ in pdf_info):
                         pdf_info.sort(reverse=True, key=lambda x: x[0])
-                        selected_suffix, selected_href = pdf_info[0]
-                        filename = f"{ENERGY_NAME}_{YEAR}_{month_name}_{selected_suffix}.pdf"
+                        selected_href = pdf_info[0][1]
                     else:
-                        # Case: No suffix — use the filename from the URL
                         selected_href = pdf_info[-1][1]
-                        base_pdf_name = os.path.basename(selected_href).split("?")[0].replace(".pdf", "")
-                        filename = f"{base_pdf_name}_{month_name}_{YEAR}.pdf"
 
-                    # Sanitize file name
-                    filename = filename.replace(" ", "_").replace("(", "").replace(")", "")
-                    file_path = os.path.join(DOWNLOAD_DIR, filename)
+                    # BEFORE downloading: snapshot existing pdf files
+                    before_files = set(list_pdf_files(DOWNLOAD_DIR))
 
-                    if os.path.exists(file_path):
-                        print(f"✔️ Already exists: {filename}")
-                        already_present.append(f"{ENERGY_NAME}-{month_name}")
+                    # Trigger the browser to GET the PDF (Chrome will save it)
+                    # Use driver.get so same session/cookies used
+                    print(f"📥 Triggering browser download for: {selected_href}")
+                    driver.get(selected_href)
+
+                    # Wait for new file to appear
+                    new_file = wait_for_new_file(DOWNLOAD_DIR, before_files, timeout=25, poll=0.7)
+                    if not new_file:
+                        print(f"❌ No new downloaded file detected for {ENERGY_NAME}-{month_name}")
+                        no_pdf.append(f"{ENERGY_NAME}-{month_name}")
                         continue
 
-                    print(f"📥 Downloading: {selected_href}")
-                    response = requests.get(selected_href)
-                    with open(file_path, "wb") as f:
-                        f.write(response.content)
+                    new_path = os.path.join(DOWNLOAD_DIR, new_file)
+                    # Ensure the file is fully written (no partial)
+                    # double-check there is no .crdownload now
+                    time.sleep(0.5)
 
-                    print(f"✅ Saved: {file_path}")
-                    downloaded.append(f"{ENERGY_NAME}-{month_name}")
+                    # Validate it's a real PDF
+                    if not is_valid_pdf(new_path):
+                        print(f"⚠️ Downloaded file is not a valid PDF: {new_file}")
+                        # remove invalid file to keep folder clean
+                        try:
+                            os.remove(new_path)
+                        except Exception:
+                            pass
+                        no_pdf.append(f"{ENERGY_NAME}-{month_name}")
+                        continue
+
+                    # Rename/move to deterministic target filename
+                    if os.path.exists(target_path):
+                        # race condition: target exists now, skip rename and mark already present
+                        print(f"✔️ Target already exists after download: {target_filename}. Removing newly downloaded file.")
+                        try:
+                            os.remove(new_path)
+                        except Exception:
+                            pass
+                        already_present.append(f"{ENERGY_NAME}-{month_name}")
+                    else:
+                        os.replace(new_path, target_path)
+                        print(f"✅ Saved and renamed to: {target_filename}")
+                        downloaded.append(f"{ENERGY_NAME}-{month_name}")
 
                 except TimeoutException:
-                    print(f"❌ Timeout: No PDFs for {ENERGY_NAME} → {month_name}")
+                    print(f"❌ Timeout waiting for PDF links for {ENERGY_NAME} → {month_name}")
                     no_pdf.append(f"{ENERGY_NAME}-{month_name}")
 
     finally:
         driver.quit()
-    from collections import defaultdict
 
-    # --- Grouped Summary by ENERGY_NAME ---
+    # ---------------- Summary ----------------
     status_map = defaultdict(lambda: defaultdict(list))
-
     for entry in downloaded:
         energy, month = entry.rsplit("-", 1)
         status_map[energy]["✅ Downloaded"].append(month)
-
     for entry in already_present:
         energy, month = entry.rsplit("-", 1)
         status_map[energy]["✔️ Existing"].append(month)
-
     for entry in no_pdf:
         energy, month = entry.rsplit("-", 1)
         status_map[energy]["❌ Not Found"].append(month)
-
     for entry in skipped_future:
         energy, month = entry.rsplit("-", 1)
         status_map[energy]["⏩ Skipped"].append(month)
 
-    # --- Format Notification ---
     lines = []
     for energy, statuses in status_map.items():
         lines.append(f"📌 {energy}")
         for status, months in statuses.items():
-            months_str = ", ".join(months)
-            lines.append(f"  {status}: {months_str}")
+            lines.append(f"  {status}: {', '.join(months)}")
 
-    summary_msg = "\n".join(lines) or "No files processed."
+    summary_msg = "\n".join(lines) if lines else "No files processed."
 
-    # --- Toast Notification ---
+    # ---------------- Notification ----------------
     toast = Notification(
         app_id="SLDC Gujarat Multi-Energy",
-        title="🔔 SLDC Download Summary",
+        title="🔔 SLDC PDF Download Summary",
         msg=summary_msg,
         duration="long",
         icon=ICON_PATH if os.path.exists(ICON_PATH) else None
     )
     toast.set_audio(audio.Default, loop=False)
     toast.show()
+
+    print("\n📢 Done. Summary:\n")
+    print(summary_msg)
 
 def excel_conversion():
     # Set folder paths
@@ -528,51 +612,74 @@ def excel_merging():
     output_folder = "D:/OneDrive - CMES/SLDCGuj all Combined Excel"
     os.makedirs(output_folder, exist_ok=True)
 
+    # 📅 Month order to sort files
     MONTH_INDEX = {
-    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
-    "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
-    }
+        "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+        "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
+        }
 
-    def get_month_index(filename):
-        # Find first month in the filename
-        for month_abbr, idx in MONTH_INDEX.items():
-            if month_abbr in filename.upper():
-                return idx
-        return 999
+    # --- DELETED get_month_index ---
+    # --- DELETED extract_site_name ---
 
-    def extract_site_name(filename):
-        filename = filename.replace(".xlsx", "")
-        parts = filename.split("_")
-        clean_parts = []
-        for part in parts:
-            if part.upper() in MONTH_INDEX:  # stop at month
-                break
-            if re.fullmatch(r"[a-fA-F0-9]{1,12}", part):  # skip random hash
-                continue
-            clean_parts.append(part)
-        return "_".join(clean_parts)
+    # --- NEW Grouping Logic ---
+    # This regex captures (Site_Name)_(YYYY)_(MON).xlsx
+    # It's non-greedy (.+?) to handle underscores in the site name
+    file_pattern = re.compile(r"(.+?)_(\d{4})_([A-Z]{3})\.xlsx", re.I)
 
     energy_sites = defaultdict(list)
     for file in os.listdir(input_folder):
-        if file.lower().endswith(".xlsx"):
-            site_name = extract_site_name(file)
-            energy_sites[site_name].append(file)
+        if not file.lower().endswith(".xlsx"):
+            continue
+        
+        match = file_pattern.match(file)
+        if match:
+            site_name = match.group(1)
+            year = int(match.group(2))
+            month_abbr = match.group(3).upper()
+            month_index = MONTH_INDEX.get(month_abbr, 99) # Get 1-12 index
+            
+            # Store the file and its sort key (year, month_index)
+            sort_key = (year, month_index)
+            energy_sites[site_name].append( (file, sort_key) )
+        else:
+            # Fallback for MON_YYYY pattern
+            file_pattern_alt = re.compile(r"(.+?)_([A-Z]{3})_(\d{4})\.xlsx", re.I)
+            match_alt = file_pattern_alt.match(file)
+            if match_alt:
+                site_name = match_alt.group(1)
+                year = int(match_alt.group(3))
+                month_abbr = match_alt.group(2).upper()
+                month_index = MONTH_INDEX.get(month_abbr, 99)
+                
+                sort_key = (year, month_index)
+                energy_sites[site_name].append( (file, sort_key) )
+            else:
+                print(f"⚠️ File '{file}' did not match pattern, skipping.")
 
-    for site_name, files in energy_sites.items():
+    # 🔁 Merge files for each energy site 
+    for site_name, file_data_list in energy_sites.items():
         print(f"\n🔧 Merging for site: {site_name}")
-        files_sorted = sorted(files, key=get_month_index)
+        
+        # Sort the list based on the tuple (year, month_index)
+        # This is the fix for Bug #1
+        files_sorted_tuples = sorted(file_data_list, key=lambda item: item[1])
 
         wind_data_all = []
         solar_data_all = []
 
-        for file in files_sorted:
+        # Loop through the sorted tuples
+        for file_tuple in files_sorted_tuples:
+            file = file_tuple[0] # Get the filename from the tuple
             path = os.path.join(input_folder, file)
             print(f"   📄 Reading: {file}")
+            
             try:
                 excel_files = pd.ExcelFile(path, engine="openpyxl")
+                # Use dtype=str to prevent pandas from breaking data
                 wind_df = pd.read_excel(path, sheet_name="Wind Energy", dtype=str) if "Wind Energy" in excel_files.sheet_names else pd.DataFrame()
                 solar_df = pd.read_excel(path, sheet_name="Solar Energy", dtype=str) if "Solar Energy" in excel_files.sheet_names else pd.DataFrame()
 
+                # 🛡️ Ensure Date column exists
                 if not wind_df.empty and "Date" not in wind_df.columns:
                     print(f"   ⚠️ Skipped wind — 'Date' missing in {file}")
                     wind_df = pd.DataFrame()
@@ -609,7 +716,7 @@ def excel_merging():
         app_id="SLDC Gujarat Data",
         title="Excel Merging",
         msg="All Excel Files have been Merged Successfully.",
-        duration="short"
+        duration="long"
     )
     toast.set_audio(audio.Default, loop=False)
     toast.show()
