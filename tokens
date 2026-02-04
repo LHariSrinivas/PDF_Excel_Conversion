@@ -1,0 +1,19 @@
+Bot Name - SLDCPipelineUpdateBot
+
+Use this token to Access the HTTP API: 
+8549972248:AAEtTMtzxeKCJ8GZQT_UkJcjVfg4A01bmEE
+
+User ID - 5314208225
+
+
+Some improvements that need to be made: 
+    1. Since 2025 is coming to a close, we need to now load 2026. So the year variable also
+    becomes a dictionary or a list to store the years
+    2. Instead of always trying to look at whether the file exists for a particular month every day,
+    we can do the following:
+        Check for 2-3 sites. If there are no files present, then there is no point in checking for 
+        the other sites, since there won't be any files. By doing this our process becomes faster.
+        If files are present, then work as usual i.e., Download PDF -> Convert to Excel -> 
+        Merge Excel
+    3. set up env variables so that on github no one will be able to see the local folder names
+    

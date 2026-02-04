@@ -1,5 +1,6 @@
 .venv/
 .gitignore
+.gitattributes
 downloads/
 excel_conversion/
 all_combined_excel_files/
@@ -7,9 +8,8 @@ run_script.bat
 Data Scraping from Website copy.py
 checking_values_of_pdf.py
 excelmerging copy.py
-pdftoexcelcode draft.py
-CompleteWorkingPDFtoExcel.py
 allpdftoexcelcodes.py
 sample_testing/
+run_script.bat
+Streamlit_implementation/
 SLDC Gujarat Web Scraping + Excel Conversion.code-workspace
-.env

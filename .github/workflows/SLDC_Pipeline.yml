@@ -1,0 +1,71 @@
+name: SLDC Daily Automation
+
+on:
+  schedule:
+    - cron: '30 11 * * *' # Runs at 05:30 UTC (11:00 AM IST)
+  workflow_dispatch: # Manual run button
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      # 1. Get Code
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # 2. Setup Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+
+      # 3. Install Libraries
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      # 4. Run Scraper (Rename your file to scraper.py or change this line)
+      - name: Step 1 - Scrape Website
+        run: python Data Scraping from Website.py 
+
+      # 5. Run Converter (Rename your file to converter.py or change this line)
+      - name: Step 2 - Convert PDF to Excel
+        run: python pdftoexcelcode.py
+
+      # 6. Run Merger (Rename your file to merger.py or change this line)
+      - name: Step 3 - Merge Excel Files
+        run: python excelmerging.py
+
+      # 7. Save Results to GitHub (Commits the new Excel files)
+      - name: Commit and Push Results
+        run: |
+          git config --global user.name "SLDC Bot"
+          git config --global user.email "actions@github.com"
+          
+          # Add the specific output folders
+          git add downloads/*.pdf
+          git add excel_conversion/*.xlsx
+          git add all_combined_excel_files/*.xlsx
+          
+          git commit -m "Daily Data Update [skip ci]" || echo "No changes to commit"
+          git push
+
+      # 8. Telegram Notification (Success or Failure)
+      # 6. Send Telegram Notification (Always runs)
+      - name: Send Telegram Notification
+        if: always()
+        run: |
+          # Create the message text based on status
+          if [ "${{ job.status }}" == "success" ]; then
+            MESSAGE="✅ *Solar Data Success* %0A%0AThe daily Excel processing finished successfully. Check the Repo"
+          else
+            MESSAGE="❌ *Solar Data Failure* %0A%0AThe automation job crashed. Please check the GitHub Logs."
+          fi
+
+          # Send the request using curl
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            -d text="$MESSAGE" \
+            -d parse_mode="Markdown"
