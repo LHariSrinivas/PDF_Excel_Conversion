@@ -1,0 +1,2 @@
+.mp4 filter=lfs diff=lfs merge=lfs -text
+Working[[:space:]]of[[:space:]]the[[:space:]]Project.mp4 filter=lfs diff=lfs merge=lfs -text
