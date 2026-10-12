@@ -16,6 +16,26 @@ import shutil
 from datetime import datetime
 from collections import defaultdict
 from urllib.parse import unquote
+import sys
+
+# ---------------- Tee stdout to a log file ----------------
+class _Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+            s.flush()
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+
+_log_name = f"conversion_log_{datetime.now():%Y%m%d_%H%M%S}.txt"
+_log_file = open(_log_name, "w", encoding="utf-8")
+sys.stdout = _Tee(sys.stdout, _log_file)
+sys.stderr = _Tee(sys.stderr, _log_file)
+print(f"📝 Logging to: {_log_name}")
+# ----------------------------------------------------------
 
 def pdf_extraction():
     # ================= CONFIG =================
@@ -33,10 +53,8 @@ def pdf_extraction():
         "66 KV GHELDA(GNESL)",
         "220KV_NAGPUR(OP_WIND)HYBRID", 
         "220_KV_NAGPUR(CLEANMAX VAYU)", 
-        "66KV BHOJPARA (CLEANMAX)"
+        "66_KV_BHOJPARA(CLEANMAX)"
     ]
-
-    # ENERGY_NAMES = ["MOTA_DEVLIYA(HETENERGY_HYBRID)"]
 
     YEAR = "2026"
 
@@ -302,31 +320,25 @@ def excel_conversion():
     # Set folder paths
     input_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/downloads"
     output_folder = "D:/Projects/SLDC Gujarat Web Scraping + Excel Conversion/excel_conversion"
-    os.makedirs(output_folder, exist_ok=True) # Ensure output folder exists
+    os.makedirs(output_folder, exist_ok=True)
 
-    # --- UNWANTED_TEXT list for filtering ---
-    UNWANTED_TEXT = ["Period Considered for the month", 
+    UNWANTED_TEXT = ["Period Considered for the month",
                     "Active Energy Received From",
-                    "Reactive Energy Supplied to", 
+                    "Reactive Energy Supplied to",
                     "GUJARAT ENERGY TRANSMISSION CORPORATION LIMITED"]
 
-    # --- FIXED extract_date_from_filename ---
+
     def extract_date_from_filename(base_name):
-        # This regex is more general to find YEAR_MON or MON_YEAR
-        match = re.search(r"(\d{4})_([A-Z]{3})", base_name.upper()) # No leading '_'
+        match = re.search(r"(\d{4})_([A-Z]{3})", base_name.upper())
         if match:
-            year = match.group(1)
-            mon = match.group(2).upper()
+            year, mon = match.group(1), match.group(2).upper()
         else:
-            # Try alternate pattern: _MON_YYYY
             match = re.search(r"([A-Z]{3})_(\d{4})", base_name.upper())
             if match:
-                mon = match.group(1).upper()
-                year = match.group(2)
+                mon, year = match.group(1).upper(), match.group(2)
             else:
                 print(f"DEBUG WARNING: No date found in filename: {base_name}")
-                return "" # No date found
-
+                return ""
         month_map = {
             "JAN": "01", "FEB": "02", "MAR": "03", "APR": "04",
             "MAY": "05", "JUN": "06", "JUL": "07", "AUG": "08",
@@ -334,34 +346,18 @@ def excel_conversion():
         }
         return f"01-{month_map[mon]}-{year}" if mon in month_map else ""
 
-    # --- FIXED clean_empty_columns ---
+
     def clean_empty_columns(df):
-        """
-        Removes columns from a DataFrame that have a blank header (None or '')
-        AND contain no data (all values are None, NA, or '').
-        """
         if df.empty:
             return df
-
-        # 1. Find columns where the header name is blank ('' or None)
         is_blank_col = (df.columns.astype(str).str.strip() == '') | (df.columns.isna())
-        
-        # 2. Find columns where all values are NA or blank strings
-        # .replace handles both '' and None, .isna() catches all
         is_all_na_col = df.replace('', pd.NA).isna().all()
-        
-        # 3. We want to drop columns that are BOTH blank AND all-NA
         is_to_drop = is_blank_col & is_all_na_col
-        
-        # 4. Select columns that are NOT to be dropped
         return df.loc[:, ~is_to_drop]
 
-    def align_to_header(row, full_header):
-        """
-        (This is your provided function, unchanged)
-        """
-        header_len = len(full_header)
 
+    def align_to_header(row, full_header):
+        header_len = len(full_header)
         data_values = [cell for cell in row]
 
         if len(row) == header_len:
@@ -393,28 +389,100 @@ def excel_conversion():
         if data_index < len(data_values) and len(data_values) > 0:
             print(f"DEBUG WARNING: Row has unmapped data: {data_values[data_index:]}. Returning None.")
             return None
-
         return aligned_row
+
+
+    # ---------------- NEW: robust continuation-row mapper ----------------
+    def map_continuation_row(clean_row, header, has_import, section):
+        """
+        Maps a continuation / collapsed row to the full header by branching on the
+        ACTUAL number of values present, instead of blindly indexing clean_row[7].
+
+        Handles:
+        - 8 values (8 named cols) : full row WITH Import
+        - 8 values (7 named cols) : OLD layout with spacer at index 1 -> drop spacer
+        - 7 values + has_import   : row MISSING the Import cell -> insert "" for Import
+        - 7 values + old layout   : spacer already dropped -> straight map
+        - 6 values                : REC (and maybe Import) collapsed away -> pad with blanks
+        Returns a norm_row aligned to `header`, or None if it cannot be mapped.
+        """
+        n = len(clean_row)
+        header_nonempty_indices = [i for i, h in enumerate(header) if h and h.strip()]
+        n_named = len(header_nonempty_indices)   # how many REAL columns the header has
+
+        try:
+            if n == 8:
+                if n_named == 8:
+                    # NEW structure: [Sr, Name, DISCOM, REC, Capacity, Active, Import, Reactive]
+                    data_list = [clean_row[0], clean_row[1], clean_row[2], clean_row[3],
+                                clean_row[4], clean_row[5], clean_row[6], clean_row[7]]
+                else:
+                    # OLD structure with blank spacer at index 1 (7 named columns):
+                    # [Sr, ., Name, DISCOM, REC, Capacity, Active, Reactive] -> drop index 1
+                    data_list = [clean_row[0], clean_row[2], clean_row[3], clean_row[4],
+                                clean_row[5], clean_row[6], clean_row[7]]
+
+            elif n == 7:
+                if has_import:
+                    # Header HAS Import, but this row is MISSING the Import value.
+                    # [Sr, Name, DISCOM, REC, Capacity, Active, Reactive]
+                    # Insert "" where Import belongs -> aligns to 8-col header.
+                    data_list = [clean_row[0], clean_row[1], clean_row[2], clean_row[3],
+                                clean_row[4], clean_row[5], "", clean_row[6]]
+                else:
+                    # OLD layout, spacer already dropped by pdfplumber -> straight 7-value map.
+                    # [Sr, Name, DISCOM, REC, Capacity, Active, Reactive]
+                    data_list = [clean_row[0], clean_row[1], clean_row[2], clean_row[3],
+                                clean_row[4], clean_row[5], clean_row[6]]
+
+            elif n == 6:
+                # REC blank got dropped too (and Import, if applicable).
+                if has_import:
+                    # [Sr, Name, DISCOM, Capacity, Active, Reactive]
+                    data_list = [clean_row[0], clean_row[1], clean_row[2], "",
+                                clean_row[3], clean_row[4], "", clean_row[5]]
+                else:
+                    # [Sr, Name, DISCOM, Capacity, Active, Reactive]
+                    data_list = [clean_row[0], clean_row[1], clean_row[2], "",
+                                clean_row[3], clean_row[4], clean_row[5]]
+            else:
+                print(f"DEBUG WARNING: [{section}] Unexpected continuation row length {n}. Row: {clean_row}")
+                return None
+
+        except IndexError:
+            print(f"DEBUG WARNING: [{section}] IndexError while mapping. Row: {clean_row}")
+            return None
+
+        if len(data_list) != len(header_nonempty_indices):
+            print(f"DEBUG WARNING: [{section}] map mismatch. "
+                f"Data({len(data_list)}) vs Header({len(header_nonempty_indices)}). Row: {clean_row}")
+            return None
+
+        norm_row = [""] * len(header)
+        for idx, val in zip(header_nonempty_indices, data_list):
+            norm_row[idx] = val
+        return norm_row
+
 
     def extract_sections(pdf_path):
         wind_rows, solar_rows = [], []
         wind_header, solar_header = None, None
-        wind_has_import, solar_has_import = False, False   # NEW: structure flags
+        wind_has_import, solar_has_import = False, False
         current_section = None
         total_count = 0
 
         base_name = os.path.splitext(os.path.basename(pdf_path))[0]
 
-        # Helper to clean just for checking, since row data is now raw
         def clean_for_check(cell):
-            if isinstance(cell, str):
-                return cell.strip().upper()
-            return ""
+            return cell.strip().upper() if isinstance(cell, str) else ""
 
         with pdfplumber.open(pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages):
                 tables = page.extract_tables()
-                print(f"--- Processing page {page_num + 1} ---")
+                print(f"--- Processing page {page_num + 1} --- "
+                    f"(section={current_section}, "
+                    f"wind_header={'set' if wind_header else 'none'}, "
+                    f"solar_header={'set' if solar_header else 'none'})")
 
                 for table in tables:
                     if not table:
@@ -424,13 +492,10 @@ def excel_conversion():
                         if not row:
                             continue
 
-                        # Use un-stripped row data, as per your note
                         clean_row = [cell if cell else "" for cell in row]
-
                         if all(cell == "" for cell in clean_row):
                             continue
 
-                        # Stripped/upper text just for CHECKS
                         check_row_text = " ".join([clean_for_check(c) for c in clean_row if c])
 
                         # ---------- Section detection ----------
@@ -443,87 +508,48 @@ def excel_conversion():
                             print(f"DEBUG: Found solar section header on page {page_num + 1}.")
                             continue
 
-                        # ---------- Stop when TOTAL encountered ----------
+                        # ---------- TOTAL ends a section ----------
                         if "TOTAL" in check_row_text and current_section is not None:
                             total_count += 1
                             print(f"DEBUG: Found 'TOTAL' row (Count: {total_count}) on page {page_num + 1}.")
                             current_section = None
                             continue
 
-                        # ---------- Capture headers (+ detect NEW 'Import' structure) ----------
+                        # ---------- Capture headers (+ detect Import) ----------
                         if current_section == "wind" and not wind_header \
                                 and "SR NO" in check_row_text and "WIND FARM OWNER" in check_row_text:
                             wind_header = [cell if cell else "" for cell in row]
-                            wind_has_import = "IMPORT" in check_row_text   # NEW
-                            print(f"DEBUG: Captured wind header. Length: {len(wind_header)}, "
-                                f"has_import={wind_has_import}")
+                            wind_has_import = "IMPORT" in check_row_text
+                            # print(f"DEBUG: Captured WIND header len={len(wind_header)}, has_import={wind_has_import}")
+                            print(f"DEBUG WIND HEADER: len={len(wind_header)}, non_empty={len([h for h in wind_header if h and h.strip()])}, has_import={wind_has_import}")
+                            print(f"       {wind_header}")
                             continue
                         elif current_section == "solar" and not solar_header \
                                 and "SOLAR ENTITY NAME" in check_row_text:
                             solar_header = [cell if cell else "" for cell in row]
-                            solar_has_import = "IMPORT" in check_row_text  # NEW
-                            print(f"DEBUG: Captured solar header. Length: {len(solar_header)}, "
-                                f"has_import={solar_has_import}")
+                            solar_has_import = "IMPORT" in check_row_text
+                            print(f"DEBUG: Captured SOLAR header len={len(solar_header)}, has_import={solar_has_import}")
+                            print(f"       {solar_header}")
                             continue
 
-                        # --- Unwanted text check: DELIBERATELY SKIPPED here (filtered on the DataFrame later) ---
-
-                        # ---------- Data Capture Logic ----------
                         norm_row = None
                         first_cell_val = clean_for_check(clean_row[0])
 
                         # ========================= WIND =========================
                         if current_section == "wind" and wind_header:
-                            header_nonempty_indices = [i for i, h in enumerate(wind_header) if h and h.strip()]
+                            if not first_cell_val.isdigit():
+                                continue
 
-                            # --- Page 2+ continuation rows (different physical layout) ---
-                            if page_num > 0 and first_cell_val.isdigit() and len(clean_row) < len(wind_header):
-                                try:
-                                    if wind_has_import:
-                                        # NEW STRUCTURE (Aug onward): NO blank spacer, Import col present
-                                        # clean_row: [Sr, Name, DISCOM, REC, Capacity, Active, Import, Reactive]
-                                        data_list = [
-                                            clean_row[0],  # Sr No
-                                            clean_row[1],  # Name
-                                            clean_row[2],  # DISCOM
-                                            clean_row[3],  # REC
-                                            clean_row[4],  # Installed Capacity
-                                            clean_row[5],  # Active Energy
-                                            clean_row[6],  # Active Energy (Import)  ← NEW
-                                            clean_row[7],  # Reactive Energy
-                                        ]
-                                    else:
-                                        # OLD STRUCTURE (Jan–Jul): blank spacer at index 1
-                                        # clean_row: [Sr, ., Name, DISCOM, REC, Capacity, Active, Reactive]
-                                        data_list = [
-                                            clean_row[0],  # Sr No
-                                            clean_row[2],  # Name
-                                            clean_row[3],  # DISCOM
-                                            clean_row[4],  # REC
-                                            clean_row[5],  # Installed Capacity
-                                            clean_row[6],  # Active Energy
-                                            clean_row[7],  # Reactive Energy
-                                        ]
+                            #TEMP DEBUG
+                            print(f"RAW WIND ROW (len={len(clean_row)}): {clean_row}")
 
-                                    norm_row = [""] * len(wind_header)
-                                    if len(data_list) == len(header_nonempty_indices):
-                                        for idx, val in zip(header_nonempty_indices, data_list):
-                                            norm_row[idx] = val
-                                    else:
-                                        print(f"DEBUG WARNING: Wind P2 map mismatch. "
-                                            f"Data({len(data_list)}) vs Header({len(header_nonempty_indices)}). "
-                                            f"Row: {clean_row}")
-                                        norm_row = None
-
-                                except IndexError:
-                                    print(f"DEBUG WARNING: Page 2 wind row IndexError. Row: {clean_row}")
-                                    norm_row = None
-
-                            # --- Page 1 (and any full-width rows): use flexible aligner ---
-                            elif first_cell_val.isdigit():
+                            if len(clean_row) < len(wind_header):
+                                # continuation / collapsed row -> robust length-based mapper
+                                norm_row = map_continuation_row(clean_row, wind_header, wind_has_import, "WIND")
+                            else:
+                                # full-width row -> flexible aligner
                                 norm_row = align_to_header(clean_row, wind_header)
 
-                            # --- Append (with SEPC filter preserved) ---
                             if norm_row and len(norm_row) == len(wind_header):
                                 row_text = " ".join([clean_for_check(c) for c in norm_row if c])
                                 if "SEPC" in base_name.upper():
@@ -534,59 +560,17 @@ def excel_conversion():
 
                         # ========================= SOLAR =========================
                         elif current_section == "solar" and solar_header:
-                            header_nonempty_indices = [i for i, h in enumerate(solar_header) if h and h.strip()]
-
                             if not first_cell_val.isdigit():
-                                continue  # skip non-data rows
+                                continue
 
-                            # --- Page 2+ continuation rows (different physical layout) ---
-                            if page_num > 0 and len(clean_row) < len(solar_header):
-                                try:
-                                    if solar_has_import:
-                                        # NEW STRUCTURE (Aug onward): NO blank spacer, Import col present
-                                        # clean_row: [Sr, Name, DISCOM, REC, Capacity, Active, Import, Reactive]
-                                        data_list = [
-                                            clean_row[0],  # Sr No
-                                            clean_row[1],  # Name
-                                            clean_row[2],  # DISCOM
-                                            clean_row[3],  # REC
-                                            clean_row[4],  # Installed Capacity
-                                            clean_row[5],  # Active Energy
-                                            clean_row[6],  # Active Energy (Import)  ← NEW
-                                            clean_row[7],  # Reactive Energy
-                                        ]
-                                    else:
-                                        # OLD STRUCTURE (Jan–Jul): blank spacer at index 1
-                                        # clean_row: [Sr, ., Name, DISCOM, REC, Capacity, Active, Reactive]
-                                        data_list = [
-                                            clean_row[0],  # Sr No
-                                            clean_row[2],  # Name
-                                            clean_row[3],  # DISCOM
-                                            clean_row[4],  # REC
-                                            clean_row[5],  # Installed Capacity
-                                            clean_row[6],  # Active Energy
-                                            clean_row[7],  # Reactive Energy
-                                        ]
+                            #TEMP DEBUG
+                            print(f"RAW SOLAR ROW (len={len(clean_row)}): {clean_row}")
 
-                                    norm_row = [""] * len(solar_header)
-                                    if len(data_list) == len(header_nonempty_indices):
-                                        for idx, val in zip(header_nonempty_indices, data_list):
-                                            norm_row[idx] = val
-                                    else:
-                                        print(f"DEBUG WARNING: Solar P2 map mismatch. "
-                                            f"Data({len(data_list)}) vs Header({len(header_nonempty_indices)}). "
-                                            f"Row: {clean_row}")
-                                        norm_row = None
-
-                                except IndexError:
-                                    print(f"DEBUG WARNING: Page 2 solar row IndexError. Row: {clean_row}")
-                                    norm_row = None
-
-                            # --- Page 1 solar (and full-width rows): use flexible aligner ---
+                            if len(clean_row) < len(solar_header):
+                                norm_row = map_continuation_row(clean_row, solar_header, solar_has_import, "SOLAR")
                             else:
                                 norm_row = align_to_header(clean_row, solar_header)
 
-                            # --- Append (with SEPC filter preserved) ---
                             if norm_row and len(norm_row) == len(solar_header):
                                 row_text = " ".join([clean_for_check(c) for c in norm_row if c])
                                 if "SEPC" in base_name.upper():
@@ -595,21 +579,21 @@ def excel_conversion():
                                 else:
                                     solar_rows.append(norm_row)
 
-        # ---------- Final cleanup: remove any header-remnant rows ----------
+        # ---------- Remove header-remnant rows ----------
         if wind_header:
-            wind_header_text = " ".join([clean_for_check(c) for c in wind_header if c])
+            h = " ".join([clean_for_check(c) for c in wind_header if c])
             wind_rows = [r for r in wind_rows
-                        if " ".join([clean_for_check(c) for c in r if c]) != wind_header_text]
+                        if " ".join([clean_for_check(c) for c in r if c]) != h]
         if solar_header:
-            solar_header_text = " ".join([clean_for_check(c) for c in solar_header if c])
+            h = " ".join([clean_for_check(c) for c in solar_header if c])
             solar_rows = [r for r in solar_rows
-                        if " ".join([clean_for_check(c) for c in r if c]) != solar_header_text]
+                        if " ".join([clean_for_check(c) for c in r if c]) != h]
 
         print(f"--- Final Count for {base_name}: {len(wind_rows)} wind, {len(solar_rows)} solar ---")
         return wind_header, wind_rows, solar_header, solar_rows
 
-    # --- MAIN LOOP ---
 
+    # --- MAIN LOOP ---
     for filename in os.listdir(input_folder):
         if not filename.lower().endswith(".pdf"):
             continue
@@ -617,10 +601,10 @@ def excel_conversion():
         pdf_path = os.path.join(input_folder, filename)
         base_name = os.path.splitext(filename)[0]
         excel_path = os.path.join(output_folder, f"{base_name}.xlsx")
-        
+
         print(f"\n--- Processing {filename} ---")
         wind_header, wind_rows, solar_header, solar_rows = extract_sections(pdf_path)
-        
+
         if not wind_rows and not solar_rows:
             print(f"❌ No Wind/Solar data in: {filename}")
             continue
@@ -633,46 +617,36 @@ def excel_conversion():
         df_wind = clean_empty_columns(df_wind)
         df_solar = clean_empty_columns(df_solar)
 
-        # --- NEW: Filter unwanted text rows from the DataFrames ---
         pat = '|'.join(UNWANTED_TEXT)
 
         if not df_wind.empty:
-            # Find the "Name" column (it might have newlines from the header)
             wind_name_col = [col for col in df_wind.columns if "WIND FARM OWNER" in str(col).upper()]
             if wind_name_col:
-                # Filter rows where the "Name" column contains any unwanted text
                 df_wind = df_wind[~df_wind[wind_name_col[0]].astype(str).str.contains(pat, case=False, na=False)]
             else:
                 print(f"DEBUG WARNING: Could not find 'Name of Wind Farm Owner' column in {filename} to filter.")
 
         if not df_solar.empty:
-            # Find the "Name" column
             solar_name_col = [col for col in df_solar.columns if "SOLAR ENTITY NAME" in str(col).upper()]
             if solar_name_col:
-                # Filter rows where the "Name" column contains any unwanted text
                 df_solar = df_solar[~df_solar[solar_name_col[0]].astype(str).str.contains(pat, case=False, na=False)]
             else:
                 print(f"DEBUG WARNING: Could not find 'Solar Entity Name' column in {filename} to filter.")
-        # --- END NEW FILTER ---
 
-        df_wind = df_wind.replace(r'^\s*$', pd.NA, regex=True)
-        df_wind = df_wind.dropna(thresh=2).reset_index(drop=True)
-        
-        # Do the same for solar
-        df_solar = df_solar.replace(r'^\s*$', pd.NA, regex=True)
-        df_solar = df_solar.dropna(thresh=2).reset_index(drop=True)
+        df_wind = df_wind.replace(r'^\s*$', pd.NA, regex=True).dropna(thresh=2).reset_index(drop=True)
+        df_solar = df_solar.replace(r'^\s*$', pd.NA, regex=True).dropna(thresh=2).reset_index(drop=True)
 
         if not df_wind.empty:
             df_wind.insert(1, "Date", date_str)
             df_wind.rename(columns={"SSr No": "Sr No"}, inplace=True)
             if "Sr No" in df_wind.columns:
-                df_wind["Sr No"] = range(1, len(df_wind)+1)
+                df_wind["Sr No"] = range(1, len(df_wind) + 1)
 
         if not df_solar.empty:
             df_solar.insert(1, "Date", date_str)
             df_solar.rename(columns={"SSr No": "Sr No"}, inplace=True)
             if "Sr No" in df_solar.columns:
-                df_solar["Sr No"] = range(1, len(df_solar)+1)
+                df_solar["Sr No"] = range(1, len(df_solar) + 1)
 
         with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
             if not df_wind.empty:
